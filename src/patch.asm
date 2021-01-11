@@ -57,10 +57,32 @@ Intro:
 	ei
 	ldh [Q_hVBlankFlag], a
 
-	ld a, LCDCF_ON
+	ld bc, $FFE
+	ld hl, $D000
+	call Q_Memset
+
+	ld a, LCDCF_ON | LCDCF_BGON
 	ldh [rLCDC], a
 
-	; TODO...
+	ld a, $E4
+	ldh [rBGP], a
+
+
+	; ACTUAL FX CODE GOES HERE
+	call Q_UnpackFont
+	ld de, Q_wTilemap
+	ld hl, $8800
+	ld bc, .string
+	xor a
+	call Q_PrintStringCentered
+	ld de, $98e0
+	ld hl, Q_wTilemap
+	ld bc, $20
+	call Q_VRAMMemcpy
+
+	ld a, 60
+	call Q_WaitNFrames
+
 
 	; The ROM expects the LCD to be off at power-on, and IE = 0
 	rst Q_WaitVBlank
@@ -70,3 +92,6 @@ Intro:
 	ldh [rIE], a
 	ldh [Q_hPractice], a ; This also needs to be reset
 	jp Init
+
+.string
+	db "HELLO WORLD\n",0
