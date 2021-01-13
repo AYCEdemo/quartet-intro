@@ -154,9 +154,9 @@ Intro:
 	ld hl, $9800
 	ld bc, 10 * SCRN_VX_B
 	call Q_Memset
-	ld hl, .consoleTiles
+	ld hl, .spriteTiles
 	ld de, $8000
-	ld bc, .tiles - .consoleTiles
+	ld bc, .tiles - .spriteTiles
 	call Q_Memcpy
 	ld hl, .tiles
 	ld de, $8800
@@ -171,18 +171,18 @@ Intro:
 	; Write LCD params & turn it on
 	ld a, $E4
 	ldh [rBGP], a
+	xor a
 	ldh [rOBP0], a
+	ldh [rWY], a
+	ld a, SCRN_X + 7
+	ldh [rWX], a
 	ld a, SCRN_VX - SCRN_X
 	ldh [rSCX], a
 	ld a, SCRN_VY - SCRN_Y
 	ldh [rSCY], a
-	xor a
-	ldh [rWY], a
-	ld a, SCRN_X + 7
-	ldh [rWX], a
 	ld a, STATF_LYC
 	ldh [rSTAT], a
-	ld a, $2C
+	ld a, $1C
 	ldh [rLYC], a
 	ld a, LCDCF_ON | LCDCF_WINON | LCDCF_OBJ16 | LCDCF_OBJ16 | LCDCF_OBJON | LCDCF_BGON
 	ldh [rLCDC], a
@@ -190,33 +190,44 @@ Intro:
 
 	; Write sprites
 	; ld hl, ConsoleSpritePos
-	ld c, (ConsoleSpritePos.end - ConsoleSpritePos) / 2
-	ld de, wLightOAM
+	lb bc, (ConsoleSpritePos.end - ConsoleSpritePos.light) / 2, ConsoleSpritePos.light - ConsoleSpritePos
+	ld de, wLightOAM.end
 .writeConsoleSprite
-	ld a, [hli]
-	ld [de], a
-	inc e ; inc de
-	ld a, [hli]
-	ld [de], a
-	inc e ; inc de
-	ld a, e
-	ld [de], a
-	inc e ; inc de
+	dec e ; dec de
 	xor a
 	ld [de], a
-	inc e ; inc de
+	dec e ; dec de
+	ld a, c
+	ld [de], a
+	dec e ; dec de
+	ld a, [hli]
+	ld [de], a
+	dec e ; dec de
+	ld a, [hli]
+	ld [de], a
+	dec c
 	dec c
 	jr nz, .writeConsoleSprite
-	; Clear the remaining Y positions
-	ld c, 40 - (ConsoleSpritePos.end - ConsoleSpritePos) / 2
+	; Write light sprite positions
+.writeLightSprite
+	dec e ; dec de
+	xor a
+	ld [de], a
+	dec e ; dec de
+	ld [de], a
+	dec e ; dec de
+	ld a, [hli]
+	ld [de], a
+	dec e ; dec de
+	ld a, [hli]
+	ld [de], a
+	dec b
+	jr nz, .writeLightSprite
+	; Clear the remaining sprites
 	xor a
 .clearOAM
+	dec e ; dec de
 	ld [de], a
-	inc e ; inc de
-	inc e ; inc de
-	inc e ; inc de
-	inc e ; inc de
-	dec c
 	jr nz, .clearOAM
 
 	; Decode that RLE
@@ -282,8 +293,6 @@ Intro:
 	; TODO: update text
 	; Reload animation ptr
 	ld hl, wWindowXValues
-	; TODO: depending on value of B at this point, may not be necessary
-	;       (load directly into `de` if necessary)
 	; Swap tilemap behind window for 2nd part of animation
 .swapTilemaps
 	ldh a, [rLCDC]
@@ -295,6 +304,24 @@ Intro:
 	ld a, b
 	and 7
 	jr nz, .noStep
+	; Read sprite tiles
+	ld de, wLightOAM.light
+	ld a, [hli] ; Read sentinel byte
+	add a, a
+	inc a
+	ld b, a
+.writeLightSpriteTile
+	inc e ; inc de
+	inc e ; inc de
+	ld a, 0
+	jr nc, .clearLightSpriteTile
+	ld a, [hli]
+.clearLightSpriteTile
+	ld [de], a
+	inc e ; inc de
+	inc e ; inc de
+	sla b
+	jr nz, .writeLightSpriteTile
 	ld d, h
 	ld e, l
 .noStep
@@ -334,15 +361,10 @@ Intro:
 	ldh [Q_hPractice], a ; This also needs to be reset
 	jp Init
 
-.consoleTiles
-NB_CONSOLE_SPRITES equ 16
-assert (ConsoleSpritePos.end - ConsoleSpritePos) / 2 == NB_CONSOLE_SPRITES
-OFS = 0
-REPT NB_CONSOLE_SPRITES
-	ds 32 ; TODO: put something interesting here
-	INCBIN "res/console_tiles.vert.2bpp",OFS,32
-OFS = OFS + 32
-ENDR
+.spriteTiles
+	ds 32, 0 ; Blank tile
+INCBIN "res/console_tiles.vert.2bpp"
+INCBIN "res/light_tiles.vert.2bpp"
 ; Expected to be contiguous
 .tiles
 INCBIN "res/draft.uniq.2bpp"
@@ -350,24 +372,33 @@ INCBIN "res/draft.uniq.2bpp"
 .tilemap
 INCBIN "res/draft.uniq.tilemap.bit7", 20
 ; Expected to be contiguous
-ConsoleSpritePos:
-	db  72 + 16, 111 + 8
-	db  73 + 16, 103 + 8
-	db  75 + 16,  95 + 8
-	db  78 + 16,  88 + 8
-	db  94 + 16,  88 + 8
-	db  86 + 16, 115 + 8
-	db  91 + 16, 107 + 8
-	db  95 + 16, 101 + 8
-	db  96 + 16,  96 + 8
-	db 102 + 16, 115 + 8
-	db 107 + 16, 107 + 8
-	db 111 + 16, 100 + 8
-	db 110 + 16,  94 + 8
-	db 118 + 16, 114 + 8
-	db 118 + 16, 107 + 8
-	db 127 + 16, 103 + 8
+ConsoleSpritePos: ; (X, Y), reversed from OAM order!
+	db 111 + 8,  72 + 16
+	db 103 + 8,  73 + 16
+	db  95 + 8,  75 + 16
+	db  88 + 8,  78 + 16
+	db  88 + 8,  94 + 16
+	db 115 + 8,  86 + 16
+	db 107 + 8,  91 + 16
+	db 101 + 8,  95 + 16
+	db  96 + 8,  96 + 16
+	db 115 + 8, 102 + 16
+	db 107 + 8, 107 + 16
+	db 100 + 8, 111 + 16
+	db  94 + 8, 110 + 16
+	db 114 + 8, 118 + 16
+	db 107 + 8, 118 + 16
+	db 103 + 8, 127 + 16
+.light
+	db  70 + 8,  37 + 16
+	db  74 + 8,  38 + 16
+	db  79 + 8,  50 + 16
+	db  75 + 8,  54 + 16
+	db  79 + 8,  66 + 16
+	db  75 + 8,  76 + 16
 .end
+NB_CONSOLE_SPRITES equ (.light - ConsoleSpritePos) / 2
+NB_LIGHT_SPRITES equ (.end - .light) / 2
 ; Expected to be contiguous
 WindowXValues:
 INCBIN "res/winx.bin"
@@ -418,7 +449,12 @@ IntTrampolinesEnd:
 SECTION "Shadow OAM", WRAM0[$C000]
 
 wLightOAM:
-	ds $A0
+	ds (40 - NB_LIGHT_SPRITES - NB_CONSOLE_SPRITES) * 4
+.light
+	ds NB_LIGHT_SPRITES * 4
+.console
+	ds NB_CONSOLE_SPRITES * 4
+.end
 
 wWindowXValues:
 	ds WXVAL_LEN
