@@ -64,3 +64,7 @@ $(RESDIR)/%.bit7: tools/bit7flip.py $(RESDIR)/%
 $(RESDIR)/%.2bpp $(RESDIR)/%.tilemap: $(RESDIR)/%.png
 	@mkdir -p $(RESDIR)/$(@*)
 	$(RGBGFX) $(GFXFLAGS) -o $(RESDIR)/$*.2bpp -t $(RESDIR)/$*.tilemap $<
+
+$(RESDIR)/winx.bin $(RESDIR)/winx.inc: $(RESDIR)/winx.asm
+	$(RGBASM) $(ASFLAGS) -o $(RESDIR)/winx.o $< > $(RESDIR)/winx.inc
+	$(RGBLINK) -x -o $(RESDIR)/winx.bin $(RESDIR)/winx.o

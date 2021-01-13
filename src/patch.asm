@@ -2,6 +2,8 @@
 INCLUDE "hardware.inc/hardware.inc"
 INCLUDE "res/syms.asm"
 
+INCLUDE "res/winx.inc"
+
 
 lb: MACRO
 	assert (\2) < 256
@@ -48,15 +50,27 @@ SECTION "Patch", ROM0[$5C7C]
 Retpoline:
 	dw Intro
 
+
 Intro:
 	ld sp, $E000
 
 	; Init interrupts
-	ld a, $d9 ; reti
-	ldh [Q_hSTATTrampoline], a
-	ld de, Q_DefaultVBlankHandler
-	ld hl, Q_hVBlankTrampoline
-	call Q_WriteTrampoline
+	ld hl, StatHandler
+	lb bc, hStatHandler.end - hStatHandler, LOW(hStatHandler)
+.copyHandler
+	ld a, [hli]
+	ldh [c], a
+	inc c
+	dec b
+	jr nz, .copyHandler
+	; ld hl, IntTrampolines
+	lb bc, IntTrampolinesEnd - IntTrampolines, LOW(Q_hSTATTrampoline)
+.copyTrampolines
+	ld a, [hli]
+	ldh [c], a
+	inc c
+	dec b
+	jr nz, .copyTrampolines
 
 	ld a, IEF_VBLANK | IEF_LCDC
 	ldh [rIE], a
@@ -75,12 +89,62 @@ Intro:
 	jr nz, .notSGB
 	call Q_DetectSGB
 	; DO NOT SET CONSOLE TYPE TO SGB
-	; The game only performs SGB detection **and init** if DMG is initially detected!!
+	; The game only performs SGB detection **and init** only if DMG is initially detected!!
 	ldh [hIsSGB], a
 	jr z, .notSGB
 	; TODO: perform SGB init, including border transfer
 	; Also, disable changing the border! (ICON_EN)
+	; Don't forget to turn the LCD off again!
 .notSGB
+
+	;; VRAM init
+	; Performed after SGB check because of the VRAM transfers
+
+	; Copy secondary tilemap
+	ld hl, .tilemap
+	ld de, $9DCC
+	ld bc, SecondaryMapCopySpecs
+.writeSecondaryMapRow
+	ld a, [bc] ; Read count
+	inc bc
+	ldh [hPreludeCopyCnt], a
+.copyPrelude
+	ld a, [hli]
+	ld [de], a
+	inc e ; inc de
+	ldh a, [hPreludeCopyCnt]
+	add a, $10
+	ldh [hPreludeCopyCnt], a
+	jr nc, .copyPrelude
+.copyTrailing
+	ld a, [hli] ; Advance read ptr
+	ld a, [bc] ; Read tile
+	inc bc
+	ld [de], a
+	inc e ; inc de
+	; Only reason that this jump works is that the stars align. Don't try at home, kids
+	jr z, .secondaryMapDone
+	ldh a, [hPreludeCopyCnt]
+	dec a
+	ldh [hPreludeCopyCnt], a
+	jr nz, .copyTrailing
+	ld a, $80
+.writeTrailing
+	inc hl
+	ld [de], a
+	inc de
+	bit 4, e
+	jr nz, .writeTrailing
+	ld a, e
+	or $0C
+	ld e, a
+	jr .writeSecondaryMapRow
+.secondaryMapDone
+	; Just copy the rest
+	ld de, $9F0C
+	lb bc, 20, 8
+	ld a, 32 - 20
+	call Q_CopyRows
 
 	ld hl, $9C00
 	ld a, $81
@@ -112,13 +176,22 @@ Intro:
 	ldh [rSCX], a
 	ld a, SCRN_VY - SCRN_Y
 	ldh [rSCY], a
-	ld a, LCDCF_ON | LCDCF_OBJ16 | LCDCF_OBJ16 | LCDCF_OBJON | LCDCF_BGON
+	xor a
+	ldh [rWY], a
+	ld a, SCRN_X + 7
+	ldh [rWX], a
+	ld a, STATF_LYC
+	ldh [rSTAT], a
+	ld a, $2C
+	ldh [rLYC], a
+	ld a, LCDCF_ON | LCDCF_WINON | LCDCF_OBJ16 | LCDCF_OBJ16 | LCDCF_OBJON | LCDCF_BGON
 	ldh [rLCDC], a
+	; Perform some additional setup work during the first (white) frame
 
 	; Write sprites
 	; ld hl, ConsoleSpritePos
 	ld c, (ConsoleSpritePos.end - ConsoleSpritePos) / 2
-	ld de, wShadowOAM
+	ld de, wLightOAM
 .writeConsoleSprite
 	ld a, [hli]
 	ld [de], a
@@ -145,13 +218,42 @@ Intro:
 	inc e ; inc de
 	dec c
 	jr nz, .clearOAM
-	ld a, HIGH(wShadowOAM)
-	call Q_hOAMDMA
+
+	; Decode that RLE
+	; ld de, WindowXValues
+	ld d, h
+	ld e, l
+	ld hl, wWindowXValues
+	assert WARN, HIGH(WindowXValues.end) != HIGH(WindowXValues), "Can optimize WindowXValues reader!"
+.unpackWX
+	ld a, [de]
+	inc de
+	srl a
+	ld b, a
+	jr z, .done
+	jr c, .copy
+	ld a, [de]
+	inc de
+.unRLE
+	ld [hli], a
+	dec b
+	jr nz, .unRLE
+	jr .unpackWX
+.copy
+	ld a, [de]
+	inc de
+	ld [hli], a
+	dec b
+	jr nz, .copy
+	jr .unpackWX
+.done
 
 	; Init vars
 	xor a
 	ldh [Q_hCurKeys], a
+	ld a, START_CNT
 	ldh [hFrameCounter], a
+	ld de, wWindowXValues + START_OFS
 
 	; ACTUAL FX CODE GOES HERE
 .loop
@@ -161,10 +263,62 @@ Intro:
 	ldh a, [rOBP0]
 	xor $04
 	ldh [rOBP0], a
+	; Set sprites to 8x8 for first text rows
+	ldh a, [rLCDC]
+	and ~LCDCF_OBJ16
+	ldh [rLCDC], a
 
 	ldh a, [hFrameCounter]
-	dec a
+	inc a
 	ldh [hFrameCounter], a
+	ld b, a
+
+	; Check if end of animation was reached; if so, re-swap tilemaps
+	cp START_CNT
+	jr z, .swapTilemaps
+	; Check if counter reached 0, in which case, cycle the animation
+	or b
+	jr nz, .noReset
+	; TODO: update text
+	; Reload animation ptr
+	ld hl, wWindowXValues
+	; TODO: depending on value of B at this point, may not be necessary
+	;       (load directly into `de` if necessary)
+	; Swap tilemap behind window for 2nd part of animation
+.swapTilemaps
+	ldh a, [rLCDC]
+	xor LCDCF_WIN9C00 | LCDCF_BG9C00
+	ldh [rLCDC], a
+.noReset
+
+	; Every 8 frames, step the animation by advancing the reload point
+	ld a, b
+	and 7
+	jr nz, .noStep
+	ld d, h
+	ld e, l
+.noStep
+
+	ld h, d
+	ld l, e
+	; Now, perform WXzardry, changing WX on each scanline
+	; Stop when the window has been hidden
+	; This will get interrupted by the OAM DMA, but this is made to be lenient,
+	; at worst a couple scanlines will get duplicated.
+.waitNotVBlank
+	ldh a, [rLY]
+	cp SCRN_Y
+	jr nc, .waitNotVBlank
+	ld c, 0
+.stepWindow
+	ldh a, [rLY]
+	cp c
+	jr c, .stepWindow
+	ld a, [hli]
+	ldh [rWX], a
+	inc c
+	sub SCRN_X + 7
+	jr nz, .stepWindow
 
 	call Q_PollKeys
 	jr z, .loop
@@ -181,7 +335,14 @@ Intro:
 	jp Init
 
 .consoleTiles
-INCBIN "res/console_tiles.vert.2bpp"
+NB_CONSOLE_SPRITES equ 16
+assert (ConsoleSpritePos.end - ConsoleSpritePos) / 2 == NB_CONSOLE_SPRITES
+OFS = 0
+REPT NB_CONSOLE_SPRITES
+	ds 32 ; TODO: put something interesting here
+	INCBIN "res/console_tiles.vert.2bpp",OFS,32
+OFS = OFS + 32
+ENDR
 ; Expected to be contiguous
 .tiles
 INCBIN "res/draft.uniq.2bpp"
@@ -207,19 +368,75 @@ ConsoleSpritePos:
 	db 118 + 16, 107 + 8
 	db 127 + 16, 103 + 8
 .end
+; Expected to be contiguous
+WindowXValues:
+INCBIN "res/winx.bin"
+.end
+
+SecondaryMapCopySpecs:
+	db $81, $82
+	db $81, $83
+	db $81, $84
+	db $81, $84
+	db $82, $85, $86
+	db $71, $87
+	db $61, $88
+	db $62, $89, $8A
+	db $44, $8B, $8C, $8D, $8E
+	db $15, $8B, $8F, $90, $91, $92
+
+StatHandler:
+	LOAD "STAT handler", HRAM[$FF80]
+hStatHandler:
+	ld a, HIGH(wLightOAM)
+	ldh [rDMA], a
+	; Leverage some of the cycles writing to LCDC as wait time for OAM DMA to complete
+	ldh a, [rLCDC]
+	or LCDCF_OBJ16
+	ldh [rLCDC], a
+	ld a, 40 - 2
+.wait
+	dec a
+	jr nz, .wait
+	pop af
+	reti
+.end
+	ENDL
+
+IntTrampolines:
+	LOAD "Int trampolines", HRAM[Q_hSTATTrampoline]
+	push af
+	jr hStatHandler
+
+assert @ == Q_hVBlankTrampoline
+	jp Q_DefaultVBlankHandler
+	ENDL
+IntTrampolinesEnd:
+
 
 
 SECTION "Shadow OAM", WRAM0[$C000]
 
-wShadowOAM:
+wLightOAM:
 	ds $A0
 
+wWindowXValues:
+	ds WXVAL_LEN
+.end::
 
-SECTION "HRAM", HRAM[$FF80]
+
+SECTION "HRAM", HRAM[$FF91]
 
 hIsSGB:
 	db
+hPreludeCopyCnt:
 hFrameCounter:
 	db
 
-assert @ <= Q_hOAMDMA
+SECTION "OAM DMA", HRAM[Q_hOAMDMA - 2]
+
+	ds 8 ; Original OAM DMA
+
+SECTION "VBlank flag", HRAM[Q_hVBlankFlag]
+
+	db
