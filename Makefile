@@ -1,5 +1,5 @@
 
-ASFLAGS := -p 0xFF -Wall -Wextra -hL -i src/
+ASFLAGS := -p 0xFF -Wall -Wextra -EhL -i src/
 LDFLAGS := -d -t
 FIXFLAGS:= -v
 
