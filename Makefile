@@ -22,6 +22,8 @@ SRCS := $(wildcard src/*.asm)
 OBJS := $(patsubst src/%.asm,$(OBJDIR)/%.o,$(SRCS))
 DEPS := $(patsubst src/%.asm,$(DEPDIR)/%.mk,$(SRCS))
 
+.SECONDEXPANSION:
+
 
 all: $(BINDIR)/quartet.gb
 .PHONY: all
@@ -55,7 +57,7 @@ endif
 ## ASSET PROCESSING
 
 
-$(RESDIR)/%.bit7: tools/bit7flip.py $(RESDIR)/%
+$(RESDIR)/%.ofs.tilemap: tools/apply_ofs.py $(RESDIR)/$$(basename $$*).tilemap
 	@mkdir -p $(@D)
 	$^ $@
 

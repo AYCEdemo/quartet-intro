@@ -101,7 +101,7 @@ Intro:
 	; Performed after SGB check because of the VRAM transfers
 
 	; Copy secondary tilemap
-	ld hl, .tilemap
+	ld hl, Tilemap
 	ld de, $9DCC
 	ld bc, SecondaryMapCopySpecs
 .writeSecondaryMapRow
@@ -128,7 +128,7 @@ Intro:
 	dec a
 	ldh [hPreludeCopyCnt], a
 	jr nz, .copyTrailing
-	ld a, $80
+	ld a, BASE_TILE
 .writeTrailing
 	inc hl
 	ld [de], a
@@ -147,22 +147,21 @@ Intro:
 	call Q_CopyRows
 
 	ld hl, $9C00
-	ld a, $81
+	ld a, BASE_TILE + 1
 	ld bc, 10 * SCRN_VX_B
 	call Q_Memset
 	dec a ; ld a, $80
 	ld hl, $9800
 	ld bc, 10 * SCRN_VX_B
 	call Q_Memset
-	ld hl, .spriteTiles
-	ld de, $8000
-	ld bc, .tiles - .spriteTiles
+	ld hl, SpriteTiles
+	ld de, vSpriteTiles
+	ld bc, Tiles - SpriteTiles
 	call Q_Memcpy
-	ld hl, .tiles
-	ld de, $8800
-	ld bc, .tilemap - .tiles
+	ld hl, Tiles
+	ld bc, Tilemap - Tiles
 	call Q_Memcpy
-	; ld hl, .tilemap
+	; ld hl, Tilemap
 	ld de, $99CC
 	lb bc, 20, 18
 	ld a, 32 - 20
@@ -274,10 +273,6 @@ Intro:
 	ldh a, [rOBP0]
 	xor $04
 	ldh [rOBP0], a
-	; Set sprites to 8x8 for first text rows
-	ldh a, [rLCDC]
-	and ~LCDCF_OBJ16
-	ldh [rLCDC], a
 
 	ldh a, [hFrameCounter]
 	inc a
@@ -305,23 +300,29 @@ Intro:
 	and 7
 	jr nz, .noStep
 	; Read sprite tiles
-	ld de, wLightOAM.light
+	; This is intentionally "bugged": the last (9th) iteration is guaranteed to read [hl]
+	ld de, wLightOAM.light - 2
 	ld a, [hli] ; Read sentinel byte
-	add a, a
-	inc a
 	ld b, a
+	scf
 .writeLightSpriteTile
 	inc e ; inc de
 	inc e ; inc de
+	inc e ; inc de
+	inc e ; inc de
+	rl b
 	ld a, 0
 	jr nc, .clearLightSpriteTile
 	ld a, [hli]
+	ccf
 .clearLightSpriteTile
 	ld [de], a
-	inc e ; inc de
-	inc e ; inc de
-	sla b
 	jr nz, .writeLightSpriteTile
+	; 10th sprite gets hardcoded depending on the previous
+	; (Relying on hardware ignoring bit 0 in 8x16 mode)
+	ld e, LOW(wLightOAM.console - 2)
+	inc a
+	ld [de], a
 	ld d, h
 	ld e, l
 .noStep
@@ -361,16 +362,26 @@ Intro:
 	ldh [Q_hPractice], a ; This also needs to be reset
 	jp Init
 
-.spriteTiles
+SpriteTiles:
 	ds 32, 0 ; Blank tile
 INCBIN "res/console_tiles.vert.2bpp"
 INCBIN "res/light_tiles.vert.2bpp"
 ; Expected to be contiguous
-.tiles
+Tiles:
 INCBIN "res/draft.uniq.2bpp"
 ; Expected to be contiguous
-.tilemap
-INCBIN "res/draft.uniq.tilemap.bit7", 20
+Tilemap:
+
+PUSHS
+SECTION "Tiles", VRAM[$8000]
+vSpriteTiles:
+	ds Tiles - SpriteTiles
+vBGTiles:
+	ds Tilemap - Tiles
+POPS
+BASE_TILE equ LOW(vBGTiles / 16)
+
+INCBIN "res/draft.uniq.{x:BASE_TILE}.ofs.tilemap", 20
 ; Expected to be contiguous
 ConsoleSpritePos: ; (X, Y), reversed from OAM order!
 	db 111 + 8,  72 + 16
@@ -390,6 +401,12 @@ ConsoleSpritePos: ; (X, Y), reversed from OAM order!
 	db 107 + 8, 118 + 16
 	db 103 + 8, 127 + 16
 .light
+	; Console
+	db 114 + 8,  82 + 16 ; Also always set, based off of previous' tile ID
+	db 111 + 8,  72 + 16 ; Always present, so always directly copied
+	db 103 + 8,  72 + 16
+	db 100 + 8,  75 + 16
+	; Player
 	db  70 + 8,  37 + 16
 	db  74 + 8,  38 + 16
 	db  79 + 8,  50 + 16
@@ -404,28 +421,34 @@ WindowXValues:
 INCBIN "res/winx.bin"
 .end
 
+; Count is formatted as such:
+; - High nibble is (16 - initial_copy_len)
+; - Low nibble is amount of tile IDs after it to copy
+spec: macro
+	db \1
+	REPT _NARG - 1
+		SHIFT
+		db BASE_TILE + (\1)
+	ENDR
+endm
 SecondaryMapCopySpecs:
-	db $81, $82
-	db $81, $83
-	db $81, $84
-	db $81, $84
-	db $82, $85, $86
-	db $71, $87
-	db $61, $88
-	db $62, $89, $8A
-	db $44, $8B, $8C, $8D, $8E
-	db $15, $8B, $8F, $90, $91, $92
+	spec $81, $02
+	spec $81, $03
+	spec $81, $04
+	spec $81, $04
+	spec $82, $05, $06
+	spec $71, $07
+	spec $61, $08
+	spec $62, $09, $0A
+	spec $44, $0B, $0C, $0D, $0E
+	spec $15, $0B, $0F, $10, $11, $12
 
 StatHandler:
 	LOAD "STAT handler", HRAM[$FF80]
 hStatHandler:
 	ld a, HIGH(wLightOAM)
 	ldh [rDMA], a
-	; Leverage some of the cycles writing to LCDC as wait time for OAM DMA to complete
-	ldh a, [rLCDC]
-	or LCDCF_OBJ16
-	ldh [rLCDC], a
-	ld a, 40 - 2
+	ld a, 40
 .wait
 	dec a
 	jr nz, .wait
