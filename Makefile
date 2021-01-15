@@ -36,8 +36,8 @@ clean:
 # For some reason, RGBLINK outputs too many bytes?
 $(BINDIR)/quartet.gb $(BINDIR)/quartet.sym $(BINDIR)/quartet.map: quartet.gb $(OBJS)
 	@mkdir -p $(@D)
-	$(RGBLINK) $(LDFLAGS) -o $(BINDIR)/quartet.gb -n $(BINDIR)/quartet_tmp.sym -m $(BINDIR)/quartet.map -O $^
-	truncate -cs 32768 $(BINDIR)/quartet.gb
+	$(RGBLINK) $(LDFLAGS) -o $(BINDIR)/quartet_tmp.gb -n $(BINDIR)/quartet_tmp.sym -m $(BINDIR)/quartet.map -O $^
+	dd bs=32768 count=1 if=$(BINDIR)/quartet_tmp.gb of=$(BINDIR)/quartet.gb
 	$(RGBFIX) $(FIXFLAGS) $(BINDIR)/quartet.gb
 	sed 's/ / Q_/' quartet.sym | cat $(BINDIR)/quartet_tmp.sym - > $(BINDIR)/quartet.sym
 
