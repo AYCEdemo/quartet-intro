@@ -11,6 +11,8 @@ lb: MACRO
 	ld \1, (\2) << 8 | (\3)
 ENDM
 
+NB_STREAMED_SPRITES equ 4
+
 
 SECTION "Entry point", ROM0[Q_EntryPoint]
 
@@ -154,12 +156,15 @@ Intro:
 	ld hl, $9800
 	ld bc, 10 * SCRN_VX_B
 	call Q_Memset
+	xor a
+	ld hl, $8000
+	lb bc, vSpriteTiles - $8000, 0
+	call Q_MemsetWithIncr
+	; ld de, vSpriteTiles
+	ld d, h
+	ld e, l
 	ld hl, SpriteTiles
-	ld de, vSpriteTiles
-	ld bc, Tiles - SpriteTiles
-	call Q_Memcpy
-	ld hl, Tiles
-	ld bc, Tilemap - Tiles
+	ld bc, Tiles.end - SpriteTiles
 	call Q_Memcpy
 	; ld hl, Tilemap
 	ld de, $99CC
@@ -188,8 +193,8 @@ Intro:
 	; Perform some additional setup work during the first (white) frame
 
 	; Write sprites
-	; ld hl, ConsoleSpritePos
-	lb bc, (ConsoleSpritePos.end - ConsoleSpritePos.light) / 2, ConsoleSpritePos.light - ConsoleSpritePos
+	; ld hl, SpritePos
+	lb bc, (SpritePos.end - SpritePos.light) / 2, SpritePos.light - SpritePos
 	ld de, wLightOAM.end
 .writeConsoleSprite
 	dec e ; dec de
@@ -265,8 +270,9 @@ Intro:
 	ldh [hFrameCounter], a
 	ld de, wWindowXValues + START_OFS
 
+
 	; ACTUAL FX CODE GOES HERE
-.loop
+MainLoop:
 	rst Q_WaitVBlank
 	; On DMG, blink the Game Boy to make it gray-ish
 	; The Game Boy is hidden by the border on SGB, so that's fine
@@ -299,30 +305,42 @@ Intro:
 	ld a, b
 	and 7
 	jr nz, .noStep
+	; Copy tiles using popslide (faster), since we know we won't be interrupted
+	ld a, [hli]
+	push hl
+	ld h, [hl]
+	ld l, a
+	ld sp, hl
+	ld hl, vStreamedSpriteTiles
+	ld c, 16 * NB_STREAMED_SPRITES / 2
+.streamTile
+	pop de
+	ld a, e
+	ld [hli], a
+	ld a, d
+	ld [hli], a
+	dec c
+	jr nz, .streamTile
+	; Restore SP and HL, and keep truckin
+	ld sp, $DFFE
+	pop hl
+	inc hl
 	; Read sprite tiles
-	; This is intentionally "bugged": the last (9th) iteration is guaranteed to read [hl]
-	ld de, wLightOAM.light - 2
 	ld a, [hli] ; Read sentinel byte
 	ld b, a
-	scf
+	ld de, wLightOAM.light - 4 ; First iteration will be skipped, since carry is clear
 .writeLightSpriteTile
 	inc e ; inc de
 	inc e ; inc de
-	inc e ; inc de
-	inc e ; inc de
-	rl b
 	ld a, 0
 	jr nc, .clearLightSpriteTile
 	ld a, [hli]
-	ccf
 .clearLightSpriteTile
 	ld [de], a
+	inc e ; inc de
+	inc e ; inc de
+	sla b
 	jr nz, .writeLightSpriteTile
-	; 10th sprite gets hardcoded depending on the previous
-	; (Relying on hardware ignoring bit 0 in 8x16 mode)
-	ld e, LOW(wLightOAM.console - 2)
-	inc a
-	ld [de], a
 	ld d, h
 	ld e, l
 .noStep
@@ -349,7 +367,7 @@ Intro:
 	jr nz, .stepWindow
 
 	call Q_PollKeys
-	jr z, .loop
+	jr z, MainLoop
 
 
 	; TODO: on SGB, clear ICON_EN
@@ -363,27 +381,44 @@ Intro:
 	jp Init
 
 SpriteTiles:
-	ds 32, 0 ; Blank tile
 INCBIN "res/console_tiles.vert.2bpp"
+.light
 INCBIN "res/light_tiles.vert.2bpp"
+.end
+; Expected to be contiguous
+FontTiles:
+INCBIN "res/font.vert.2bpp"
+.end
 ; Expected to be contiguous
 Tiles:
 INCBIN "res/draft.uniq.2bpp"
+.end
 ; Expected to be contiguous
-Tilemap:
+Tilemap: ; Continued after the VRAM declarations...
 
 PUSHS
 SECTION "Tiles", VRAM[$8000]
+	ds 2 * 16 ; Blank tiles
+vStreamedSpriteTiles:
+	ds 16 * 2 * NB_STREAMED_SPRITES
 vSpriteTiles:
-	ds Tiles - SpriteTiles
+	ds SpriteTiles.light - SpriteTiles
+.light
+	ds SpriteTiles.end - SpriteTiles.light
+vFontTiles:
+	ds FontTiles.end - FontTiles
+	assert @ <= $9000, "Can't access font from OAM! ({@} > $9000)"
 vBGTiles:
-	ds Tilemap - Tiles
+	ds Tiles.end - Tiles
+	assert @ <= $9800, "Too many tiles! ({@} > $9800)"
 POPS
 BASE_TILE equ LOW(vBGTiles / 16)
+LIGHT_BASE equ LOW(vSpriteTiles.light / 16)
+assert LIGHT_BASE == BASE_LIGHT_TILE, "Light base predicted = {BASE_LIGHT_TILE}, real = {LIGHT_BASE}"
 
 INCBIN "res/draft.uniq.{x:BASE_TILE}.ofs.tilemap", 20
 ; Expected to be contiguous
-ConsoleSpritePos: ; (X, Y), reversed from OAM order!
+SpritePos: ; (X, Y), reversed from OAM order!
 	db 111 + 8,  72 + 16
 	db 103 + 8,  73 + 16
 	db  95 + 8,  75 + 16
@@ -400,12 +435,15 @@ ConsoleSpritePos: ; (X, Y), reversed from OAM order!
 	db 114 + 8, 118 + 16
 	db 107 + 8, 118 + 16
 	db 103 + 8, 127 + 16
-.light
+NB_CONSOLE_SPRITES equ (@ - SpritePos) / 2
 	; Console
-	db 114 + 8,  82 + 16 ; Also always set, based off of previous' tile ID
-	db 111 + 8,  72 + 16 ; Always present, so always directly copied
+	; These four are actually light sprites, but they use streamed tiles
+	db 114 + 8,  82 + 16
+	db 111 + 8,  72 + 16
 	db 103 + 8,  72 + 16
 	db 100 + 8,  75 + 16
+	assert NB_STREAMED_SPRITES == (@ - SpritePos) / 2 - NB_CONSOLE_SPRITES
+.light
 	; Player
 	db  70 + 8,  37 + 16
 	db  74 + 8,  38 + 16
@@ -413,9 +451,8 @@ ConsoleSpritePos: ; (X, Y), reversed from OAM order!
 	db  75 + 8,  54 + 16
 	db  79 + 8,  66 + 16
 	db  75 + 8,  76 + 16
+NB_LIGHT_SPRITES equ (@ - SpritePos) / 2 - NB_CONSOLE_SPRITES
 .end
-NB_CONSOLE_SPRITES equ (.light - ConsoleSpritePos) / 2
-NB_LIGHT_SPRITES equ (.end - .light) / 2
 ; Expected to be contiguous
 WindowXValues:
 INCBIN "res/winx.bin"
@@ -428,7 +465,7 @@ spec: macro
 	db \1
 	REPT _NARG - 1
 		SHIFT
-		db BASE_TILE + (\1)
+		db LOW(BASE_TILE + (\1))
 	ENDR
 endm
 SecondaryMapCopySpecs:

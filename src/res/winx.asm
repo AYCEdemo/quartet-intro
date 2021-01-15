@@ -4,8 +4,6 @@ INCLUDE "hardware.inc/hardware.inc"
 
 SECTION "Data", ROM0[0]
 
-LOOP_FRAME equ 6
-
 WXVAL_LEN = 0 ; Length of dest buffer
 CUR_FRAME = 0
 ; win_x <nb scanlines>, <nb pixels to show>
@@ -16,18 +14,19 @@ win_x: MACRO
 			SHIFT
 
 			db \1
+WXVAL_LEN = WXVAL_LEN + 1
+
 			IF STRIN("\1", "%")
 				IF CUR_FRAME == LOOP_FRAME
 					; We need to begin *after* the header
-					assert (\1) == 0 ; If tiles follow it, we need a more complex check
-START_OFS equ WXVAL_LEN + 2 ; Offset to start at in the uncompressed table
+START_OFS equ WXVAL_LEN ; Offset to start at in the uncompressed table (start @ first window val)
+					assert (\1) == %00000010 ; If tiles follow the first mask, we need a more complex check
 START_CNT equ CUR_FRAME * 8 ; Initial value of frame counter, to sync with START_OFS
 				ENDC
 CUR_FRAME = CUR_FRAME + 1
 			ELSE
 				assert (\1) != 1, "WX = 166 is bugged!"
 			ENDC
-WXVAL_LEN = WXVAL_LEN + 1
 		ENDR
 
 	ELSE ; RLE
@@ -37,7 +36,14 @@ WXVAL_LEN = WXVAL_LEN + (\1)
 	ENDC
 ENDM
 
-	win_x  0, /* 10 */ %11011000, $60, $62, $38, $64, 0
+
+BASE_TILE equ $2A
+t equ BASE_TILE ; Shorter alias
+LOOP_FRAME equ 6
+BLANK_TILES equ $7ED0
+
+WinX:
+	win_x  0, /* 10 */ LOW(BLANK_TILES), HIGH(BLANK_TILES), %11011010, t+$3E, t+$40, t+$16, t+$42
 	win_x  5, $9C
 	win_x  8, $9B
 	win_x 11, $9A
@@ -47,7 +53,7 @@ ENDM
 	win_x  5, $96
 	win_x  3, $95
 	win_x  0, $94, $94, $93, $93, $92, $92, $91, $91, $90, $90, $8F, $8E, $8E, $8D, $8D, $8C, $A7, \
-              /* 11 */ %01011100, $66, $38, $68, $6A, 0
+              /* 11 */ LOW(BLANK_TILES), HIGH(BLANK_TILES), %01011110, t+$44, t+$16, t+$46, t+$48
 
 	win_x  4, $86
 	win_x  8, $85
@@ -59,7 +65,7 @@ ENDM
 	win_x  4, $7F
 	win_x  5, $7E
 	win_x  0, $7D, $7D, $7C, $7C, $7B, $7B, $7A, $79, $78, $78, $77, $76, $75, $75, $74, $75, $78, $7C, $80, $83, $86, $89, $8B, $A7, \
-              /* 12 */ %01011100, $6C, $6E, $70, $6A, 0
+              /* 12 */ LOW(BLANK_TILES), HIGH(BLANK_TILES), %01011110, t+$4A, t+$4C, t+$4E, t+$48
 
 	win_x  3, $74
 	win_x  3, $73
@@ -74,7 +80,7 @@ ENDM
 	win_x  2, $6A
 	win_x  4, $69
 	win_x  0, $68, $68, $67, $67, $66, $65, $64, $64, $63, $64, $67, $6B, $6E, $71, $73, $75, $78, $7C, $80, $83, $86, $89, $8B, $A7, \
-              /* 13 */ %01011100, $72, $74, $76, $6A, 0
+              /* 13 */ LOW(BLANK_TILES), HIGH(BLANK_TILES), %01011110, t+$50, t+$52, t+$54, t+$48
 
 	win_x  4, $62
 	win_x  8, $61
@@ -88,7 +94,7 @@ ENDM
 	win_x  3, $5B
 	win_x  4, $5C
 	win_x  0, $5E, $61, $64, $67, $6B, $6E, $71, $73, $75, $78, $7C, $80, $83, $86, $89, $8B, $A7, \
-              /* 14 */ %00011000, $78, $7A, 0
+              /* 14 */ LOW(BLANK_TILES), HIGH(BLANK_TILES), %00011010, t+$56, t+$58
 
 	win_x  4, $5A
 	win_x  6, $59
@@ -102,7 +108,7 @@ ENDM
 	win_x  3, $5B
 	win_x  4, $5C
 	win_x  0, $5E, $61, $64, $67, $6B, $6E, $71, $73, $75, $78, $7C, $80, $83, $86, $89, $8B, $A7, \
-	          /* 15 */ %00000000, 0
+	          /* 15 */ LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010
 
 	win_x  6, $52
 	win_x  7, $51
@@ -116,28 +122,28 @@ ENDM
 	win_x  3, $5B
 	win_x  4, $5C
 	win_x  0, $5E, $61, $64, $67, $6B, $6E, $71, $73, $75, $78, $7C, $80, $83, $86, $89, $8B, $A7, \
-              %00000000, 0,  $A7, \ ; Downtime w/ no sprites
-              %00000000, 0,  $A7, \
-              %00000000, 0,  $A7, \
-              %00000000, 0,  $A7, \
-              %00000000, 0,  $A7, \
-              %00000000, 0,  $A7, \
-              %00000000, 0,  $A7, \
-              %00000000, 0,  $A7, \
-              %00000000, 0,  $A7, \
-              %00000000, 0,  $A7, \
-              %00000000, 0,  $A7, \
-              %00000000, 0,  $A7, \
-              %00000000, 0,  $A7, \
-              %00000000, 0,  $A7, \
-              %00000000, 0,  $A7, \
-              %00000000, 0,  $A7, \
-              %00000000, 0,  $A7, \
-              %00000000, 0,  $A7, \
-              /*  2 */ %11011000, $22, $24, $26, $28, $7D,  $A7, \ ; No window light during these
-	          /*  3 */ %11011010, $2A, $2C, $2E, $30, $80, $83,  $A7, \
-	          /*  4 */ %11111110, $32, $34, $36, $38, $3A, $3C, $86, $89,  $A7, \
-	          /*  5 */ %11111100, $3E, $40, $42, $38, $44, $46, 0
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \ ; Downtime w/ no sprites
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              LOW(BLANK_TILES), HIGH(BLANK_TILES), %00000010,  $A7, \
+              /*  2 */ LOW(BLANK_TILES), HIGH(BLANK_TILES), %11011010, t+$00, t+$02, t+$04, t+$06,  $A7, \ ; No window light during these
+	          /*  3 */ LOW(BLANK_TILES), HIGH(BLANK_TILES), %11011010, t+$08, t+$0A, t+$0C, t+$0E,  $A7, \
+	          /*  4 */ LOW(BLANK_TILES), HIGH(BLANK_TILES), %11111110, t+$10, t+$12, t+$14, t+$16, t+$18, t+$1A,  $A7, \
+	          /*  5 */ LOW(BLANK_TILES), HIGH(BLANK_TILES), %11111110, t+$1C, t+$1E, t+$20, t+$16, t+$22, t+$24
 
 	win_x  5, $9D
 	win_x 11, $9E
@@ -148,7 +154,7 @@ ENDM
 	win_x  4, $A3
 	win_x  3, $A4
 	win_x  0, $A5, $A7, \
-	          /*  6 */ %11111100, $3E, $40, $42, $38, $44, $46, 0
+	          /*  6 */ LOW(BLANK_TILES), HIGH(BLANK_TILES), %11111110, t+$1C, t+$1E, t+$20, t+$16, t+$22, t+$24
 
 	win_x  6, $93
 	win_x  6, $94
@@ -162,7 +168,7 @@ ENDM
 	win_x  4, $9C
 	win_x  3, $9D
 	win_x  0, $9E, $9E, $9F, $9F, $A0, $A0, $A1, $A1, $A2, $A3, $A4, $A5, $A7, \
-	          /*  7 */ %11111100, $48, $40, $4A, $38, $44, $4C, 0
+	          /*  7 */ LOW(BLANK_TILES), HIGH(BLANK_TILES), %11111110, t+$26, t+$1E, t+$28, t+$16, t+$22, t+$2A
 
 	win_x  2, $83
 	win_x  8, $84
@@ -177,7 +183,7 @@ ENDM
 	win_x  4, $8D
 	win_x  3, $8E
 	win_x  0, $8F, $8F, $90, $90, $91, $91, $92, $92, $93, $94, $94, $95, $96, $97, $98, $99, $9A, $9B, $9D, $9E, $A0, $A1, $A3, $A4, $A5, $A7, \
-	          /*  8 */ %11111100, $4E, $50, $52, $38, $54, $56, 0
+	          /*  8 */ LOW(BLANK_TILES), HIGH(BLANK_TILES), %11111110, t+$2C, t+$2E, t+$30, t+$16, t+$32, t+$34
 
 	win_x  2, $76
 	win_x  8, $77
@@ -194,7 +200,7 @@ ENDM
 	win_x  2, $82
 	win_x  2, $83
 	win_x  0, $84, $85, $86, $86, $87, $88, $89, $89, $8A, $8B, $8B, $8C, $8C, $8D, $91, $97, $9B, $A2, $A7, \
-	          /*  9 */ %11111100, $58, $5A, $5C, $38, $54, $5E, 0
+	          /*  9 */ LOW(BLANK_TILES), HIGH(BLANK_TILES), %11111110, t+$36, t+$38, t+$3A, t+$16, t+$32, t+$3C
 
 	win_x  2, $5F
 	win_x  8, $60
@@ -211,7 +217,7 @@ ENDM
 	win_x  4, $6B
 	win_x  0, $6C, $6E, $71, $73, $75, $78, $7C, $80, $83, $86, $89, $8B, $91, $97, $9B, $A2, $A7
 
-	static_assert CUR_FRAME == 32, "32 window frames, not {d:CUR_FRAME}"
+	static_assert CUR_FRAME == 32, "32 window frames, t+$no {d:CUR_FRAME}"
 	db 1 ; Terminator
 
 
@@ -219,3 +225,4 @@ ENDM
 	PRINTT "START_CNT equ {START_CNT}\n"
 	PRINTT "WXVAL_LEN equ {WXVAL_LEN}\n"
 	PRINTT "LOOP_FRAME equ {LOOP_FRAME}\n"
+	PRINTT "BASE_LIGHT_TILE equ {BASE_TILE}\n"
