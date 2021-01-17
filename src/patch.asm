@@ -6,13 +6,11 @@ INCLUDE "res/text.inc"
 INCLUDE "res/winx.inc"
 
 
-; Base X position for each line, each assumed to be 10 chars long
-LINE1_X equ 75
-LINE2_X equ 75
-LINE3_X equ 75
+OAM_SWAP_SCANLINE equ 24
 
-
-OAM_SWAP_SCANLINE equ $18
+LINE1_Y equ 8
+LINE2_Y equ 26
+LINE3_Y equ 44
 
 
 lb: MACRO
@@ -310,15 +308,21 @@ Intro:
 
 	; Init text OAM
 	ld hl, wTextOAM.end - 1
+	ld c, 38
 .initTextOAM
 	xor a
 	ld [hld], a ; Attribute is constant
 	ld [hld], a ; Will be overwritten
 	ld [hld], a ; Hide them at the beginning
-	ld a, 8 + 16 ; Y position is constant
+	ld a, LINE1_Y + 16 ; Y position is constant
+	ld [hld], a
+	dec c
+	jr nz, .initTextOAM
+	xor a
+.clearTextOAM
 	ld [hld], a
 	bit 6, h
-	jr nz, .initTextOAM
+	jr nz, .clearTextOAM
 
 	; Init vars
 	xor a
@@ -372,8 +376,9 @@ MainLoop:
 	inc hl ; Skip high byte of ptr
 	; Read sprite tiles
 	ld a, [hli] ; Read sentinel byte
+	add a, a
 	ld c, a
-	ld de, wLightOAM.light - 4 ; First iteration will be skipped, since carry is clear
+	ld de, wLightOAM.light
 .writeLightSpriteTile
 	inc e ; inc de
 	inc e ; inc de
@@ -421,72 +426,93 @@ MainLoop:
 	jr nz, .noReset
 
 	; Update text
-	pop hl ; Get back text ptr
-	; Read first line
-	ld de, wTextOAM + 2
-	lb bc, NB_TEXT_SPRITES + 1, NB_TEXT_SPRITES
+	pop de ; Get back text ptr
+	; We may write up to 2 sprites too many, but we made room for that
+	ld hl, wTextOAM + (NB_TEXT_SPRITES + 2) * 4
+	ld a, [de] ; Read X pos
+	inc de
 .readFirstLine
-	ld a, [hli]
-	and a
-	jr z, .firstLineDone
-	dec c ; Count one char for the len
-	ld [de], a
+	add a, 8
+	ld c, a
+	dec l ; dec hl ; Y → Attr
+	dec l ; dec hl ; Attr → Tile
+	ld a, [de] ; Read char
+	inc de
+	ld [hld], a ; Tile → X
 	dec a
-	jr z, .readFirstLine ; Spaces don't actually count
-	dec b ; Count one character for clearing
-	inc e ; inc de
-	inc e ; inc de
-	inc e ; inc de
-	inc e ; inc de
-	jr .readFirstLine
-.firstLineDone
-	; Clear remaining tiles
+	ld a, c
+	ld [hld], a ; X → Y
+	jr nz, .readFirstLine
+	; Clear remaining sprites
 	xor a
 .clearFirstLine
-	ld [de], a
-	inc e ; inc de
-	inc e ; inc de
-	inc e ; inc de
-	inc e ; inc de
-	dec b
+	dec l ; dec hl ; Y → Attr
+	dec l ; dec hl ; Attr → Tile
+	ld [hld], a ; Tile → X
+	dec l ; dec hl ; X → Y
 	jr nz, .clearFirstLine
-	; Write 1st line X positions
-	ld de, wTextOAM + NB_TEXT_SPRITES * 4
-	ld a, c ; One too much, compensated for in the addition
-	add a, a
-	add a, a
-	; Account for OAM coord offset, and starting at the end
-	add a, LINE1_X + 8 + NB_TEXT_SPRITES * 8
-.writeLine1XPos
-	dec e ; dec de
-	dec e ; dec de
-	dec e ; dec de
-	sub 8
-	ld [de], a
-	dec e ; dec de
-	jr nz, .writeLine1XPos
-	; TODO
+	; This loop may write 1 sprite too much, but the pointer is moved back afterwards
+	ld hl, wLightOAM.light
+	ld a, [de] ; Read X pos
+	inc de
+	ld c, a
+.read2ndAgain
+	ld a, c
 .readSecondLine
-	ld a, [hli]
-	and a
-	jr z, .secondLineDone
-	; TODO
-	jr .readSecondLine
-.secondLineDone
+	add a, 8
+	ld c, a
+	ld a, [de]
+	inc de
+	and a ; If it's a space, don't use a sprite for it
+	jr z, .read2ndAgain
+	dec l ; dec hl ; Y → Attr
+	dec l ; dec hl ; Attr → Tile
+	ld [hld], a ; Tile → X
+	dec a
+	ld a, c
+	ld [hld], a ; X → Y
+	ld [hl], LINE2_Y + 16
+	jr nz, .readSecondLine
+	inc l ; inc hl ; Y → X
+	inc l ; inc hl ; X → Tile
+	; This loop may write 1 sprite too much, but it'll write in the RLE buffer which contains stale data
+	ld a, [de] ; Read X pos
+	ld c, a
+	inc de
+	db $CA ; jp z, xxxx
 .readThirdLine
-	ld a, [hli]
-	and a
-	jr z, .thirdLineDone
-	; TODO
-	jr .readThirdLine
-.thirdLineDone
-	; If next char is $00, start from beginning
-	ld a, [hl]
+	dec l ; dec hl ; Y → Attr
+	dec l ; dec hl ; Attr → Tile
+.readAgain
+	ld a, c
+	add a, 8
+	ld c, a
+	ld a, [de]
+	inc de
+	and a ; If it's a space, don't use a sprite for it
+	jr z, .readAgain
+	ld [hld], a ; Tile → X
+	dec a
+	ld a, c
+	ld [hld], a ; X → Y
+	ld [hl], LINE3_Y + 16
+	jr nz, .readThirdLine
+	; The last sprite written by the above must not be shown, so start with that one
+	xor a
+.clear2nd3rdSprites
+	ld [hld], a ; Y → Attr
+	dec l ; dec hl ; Attr → Tile
+	dec l ; dec hl ; Tile → X
+	dec l ; dec hl ; X → Y
+	bit 7, l
+	jr z, .clear2nd3rdSprites
+	; If next length is $00, start from beginning
+	ld a, [de]
 	and a
 	jr nz, .noTextLoop
-	ld hl, wText
+	ld de, wText
 .noTextLoop
-	push hl ; Save for next iteration
+	push de ; Save for next iteration
 
 	; Reload animation ptr
 	ld hl, wWindowXValues
@@ -631,6 +657,8 @@ wText:
 INCLUDE "res/text.bin.size"
 	ds SIZE
 
+; The byte at $C1FC may be overwritten with $00 by the text updating code, but this buffer
+; is not reused after the initial decoding, so that's OK
 wWindowXValuesRLE:
 INCLUDE "res/winx.bin.size"
 	ds SIZE - NB_STREAMED_TILES * 16
