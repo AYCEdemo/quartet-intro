@@ -4,6 +4,8 @@ INCLUDE "hardware.inc/hardware.inc"
 
 SECTION "Data", ROM0[0]
 
+LOAD "Decompressed data", WRAM0[$C0A0]
+
 WXVAL_LEN = 0 ; Length of dest buffer
 CUR_FRAME = 0
 ; win_x <nb scanlines>, <nb pixels to show>
@@ -220,9 +222,17 @@ WinX:
 	static_assert CUR_FRAME == 32, "32 window frames, t+$no {d:CUR_FRAME}"
 	db 1 ; Terminator
 
+StreamedTiles:
+	; ...
+
+NB_STREAMED_TILES equ (@ - StreamedTiles) / 16
+
 
 	PRINTT "START_OFS equ {START_OFS}\n"
 	PRINTT "START_CNT equ {START_CNT}\n"
 	PRINTT "WXVAL_LEN equ {WXVAL_LEN}\n"
 	PRINTT "LOOP_FRAME equ {LOOP_FRAME}\n"
 	PRINTT "BASE_LIGHT_TILE equ {BASE_TILE}\n"
+	PRINTT "NB_STREAMED_TILES equ {NB_STREAMED_TILES}\n"
+
+ENDL

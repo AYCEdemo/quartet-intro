@@ -3,7 +3,7 @@
 
 A cracktro for *Quartet*, courtesy of AYCE :)
 
-Careful when cloning that this repo uses `hardware.inc` as a submodule.
+Careful when cloning that this repo uses `hardware.inc` and `rnc_propack_source` as submodules.
 
 ## Building
 

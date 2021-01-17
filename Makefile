@@ -30,6 +30,7 @@ all: $(BINDIR)/quartet.gb
 
 clean:
 	rm -rf $(BINDIR) $(OBJDIR) $(RESDIR) $(DEPDIR)
+	make -C tools/propack clean
 .PHONY: clean
 
 # We rely on `quartet.gb` being first, and thus being passed to `-O`
@@ -68,6 +69,23 @@ $(RESDIR)/%.2bpp $(RESDIR)/%.tilemap: $(RESDIR)/%.png
 	@mkdir -p $(RESDIR)/$(@*)
 	$(RGBGFX) $(GFXFLAGS) -o $(RESDIR)/$*.2bpp -t $(RESDIR)/$*.tilemap $<
 
+
 $(RESDIR)/winx.bin $(RESDIR)/winx.inc: $(RESDIR)/winx.asm
 	$(RGBASM) $(ASFLAGS) -o $(RESDIR)/winx.o $< > $(RESDIR)/winx.inc
 	$(RGBLINK) -x -o $(RESDIR)/winx.bin $(RESDIR)/winx.o
+
+
+tools/propack/rnc64: tools/propack/main.c
+	make -C $(@D) rnc64
+
+# Dalton's decruncher skips the 18-byte header (not useful at runtime)
+$(RESDIR)/%.rnc: $(RESDIR)/% tools/propack/rnc64
+	tools/propack/rnc64 p $< $@.tmp -m 2 && dd if=$@.tmp of=$@ bs=1 skip=18
+
+# Useful to know how large a file will be when decompressed
+$(RESDIR)/%.size: $(RESDIR)/%
+	printf 'SIZE = %u' $$(wc -c $< | cut -d ' ' -f 1) > $@
+
+
+$(RESDIR)/tiles.2bpp: $(RESDIR)/console_tiles.vert.2bpp $(RESDIR)/light_tiles.vert.2bpp $(RESDIR)/font.vert.2bpp $(RESDIR)/draft.uniq.2bpp
+	cat $^ > $@

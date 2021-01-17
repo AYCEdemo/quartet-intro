@@ -13,6 +13,35 @@ ENDM
 
 NB_STREAMED_SPRITES equ 4
 
+INCLUDE "res/console_tiles.vert.2bpp.size"
+NB_CONSOLE_TILES equ SIZE / 16
+INCLUDE "res/light_tiles.vert.2bpp.size"
+NB_LIGHT_TILES equ SIZE / 16
+INCLUDE "res/font.vert.2bpp.size"
+NB_FONT_TILES equ SIZE / 16
+INCLUDE "res/draft.uniq.2bpp.size"
+NB_BG_TILES equ SIZE / 16
+
+SECTION "Tiles", VRAM[$8000]
+	ds 2 * 16 ; Blank tiles
+vStreamedSpriteTiles:
+	ds 16 * 2 * NB_STREAMED_SPRITES
+vSpriteTiles:
+	ds NB_CONSOLE_TILES * 16
+.light
+	ds NB_LIGHT_TILES * 16
+vFontTiles:
+	ds NB_FONT_TILES * 16
+	assert @ <= $9000, "Can't access font from OAM! ({@} > $9000)"
+vBGTiles:
+	ds NB_BG_TILES * 16
+	assert @ <= $9800, "Too many tiles! ({@} > $9800)"
+
+BASE_TILE equ LOW(vBGTiles / 16)
+LIGHT_BASE equ LOW(vSpriteTiles.light / 16)
+assert LIGHT_BASE == BASE_LIGHT_TILE, "Light base predicted = {BASE_LIGHT_TILE}, real = {LIGHT_BASE}"
+
+
 
 SECTION "Entry point", ROM0[Q_EntryPoint]
 
@@ -163,9 +192,8 @@ Intro:
 	; ld de, vSpriteTiles
 	ld d, h
 	ld e, l
-	ld hl, SpriteTiles
-	ld bc, Tiles.end - SpriteTiles
-	call Q_Memcpy
+	ld hl, Tiles
+	call Q_RNCUnpack
 	; ld hl, Tilemap
 	ld de, $99CC
 	lb bc, 20, 18
@@ -235,13 +263,16 @@ Intro:
 	jr nz, .clearOAM
 
 	; Decode that RLE
-	; ld de, WindowXValues
-	ld d, h
-	ld e, l
-	ld hl, wWindowXValues
-	assert WARN, HIGH(WindowXValues.end) != HIGH(WindowXValues), "Can optimize WindowXValues reader!"
+	; ld hl, WindowXValues
+	ld de, wWindowXValuesRLE
+	call Q_RNCUnpack
+	; ld hl, wWindowXValues ↓
+	ld h, d
+	ld l, e
+	ld de, wWindowXValuesRLE
 .unpackWX
 	ld a, [de]
+	assert WARN, HIGH(wWindowXValuesRLE.end) != HIGH(wWindowXValuesRLE), "Can optimize WindowXValues reader!"
 	inc de
 	srl a
 	ld b, a
@@ -380,42 +411,10 @@ MainLoop:
 	ldh [Q_hPractice], a ; This also needs to be reset
 	jp Init
 
-SpriteTiles:
-INCBIN "res/console_tiles.vert.2bpp"
-.light
-INCBIN "res/light_tiles.vert.2bpp"
-.end
-; Expected to be contiguous
-FontTiles:
-INCBIN "res/font.vert.2bpp"
-.end
-; Expected to be contiguous
 Tiles:
-INCBIN "res/draft.uniq.2bpp"
-.end
+INCBIN "res/tiles.2bpp.rnc"
 ; Expected to be contiguous
-Tilemap: ; Continued after the VRAM declarations...
-
-PUSHS
-SECTION "Tiles", VRAM[$8000]
-	ds 2 * 16 ; Blank tiles
-vStreamedSpriteTiles:
-	ds 16 * 2 * NB_STREAMED_SPRITES
-vSpriteTiles:
-	ds SpriteTiles.light - SpriteTiles
-.light
-	ds SpriteTiles.end - SpriteTiles.light
-vFontTiles:
-	ds FontTiles.end - FontTiles
-	assert @ <= $9000, "Can't access font from OAM! ({@} > $9000)"
-vBGTiles:
-	ds Tiles.end - Tiles
-	assert @ <= $9800, "Too many tiles! ({@} > $9800)"
-POPS
-BASE_TILE equ LOW(vBGTiles / 16)
-LIGHT_BASE equ LOW(vSpriteTiles.light / 16)
-assert LIGHT_BASE == BASE_LIGHT_TILE, "Light base predicted = {BASE_LIGHT_TILE}, real = {LIGHT_BASE}"
-
+Tilemap:
 INCBIN "res/draft.uniq.{x:BASE_TILE}.ofs.tilemap", 20
 ; Expected to be contiguous
 SpritePos: ; (X, Y), reversed from OAM order!
@@ -455,7 +454,7 @@ NB_LIGHT_SPRITES equ (@ - SpritePos) / 2 - NB_CONSOLE_SPRITES
 .end
 ; Expected to be contiguous
 WindowXValues:
-INCBIN "res/winx.bin"
+INCBIN "res/winx.bin.rnc" ; Also the associated tiles
 .end
 
 ; Count is formatted as such:
@@ -516,6 +515,12 @@ wLightOAM:
 	ds NB_CONSOLE_SPRITES * 4
 .end
 
+wWindowXValuesRLE:
+INCLUDE "res/winx.bin.size"
+	ds SIZE - NB_STREAMED_TILES * 16
+.end
+wWindowXValuesTiles:
+	ds NB_STREAMED_TILES * 16
 wWindowXValues:
 	ds WXVAL_LEN
 .end::
