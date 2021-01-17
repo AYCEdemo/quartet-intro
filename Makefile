@@ -40,7 +40,7 @@ $(BINDIR)/quartet.gb $(BINDIR)/quartet.sym $(BINDIR)/quartet.map: quartet.gb $(O
 	dd bs=32768 count=1 if=$(BINDIR)/quartet_tmp.gb of=$(BINDIR)/quartet.gb
 	$(RGBFIX) $(FIXFLAGS) $(BINDIR)/quartet.gb
 	sed 's/ / Q_/' quartet.sym | cat $(BINDIR)/quartet_tmp.sym - > $(BINDIR)/quartet.sym
-	rm -f quartet_tmp.gb quartet_tmp.sym
+	rm -f $(BINDIR)/quartet_tmp.gb $(BINDIR)/quartet_tmp.sym
 
 $(OBJDIR)/%.o $(DEPDIR)/%.mk: src/%.asm
 	@mkdir -p $(OBJDIR)/$(*D) $(DEPDIR)/$(*D)
