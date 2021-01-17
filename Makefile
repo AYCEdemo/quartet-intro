@@ -70,9 +70,9 @@ $(RESDIR)/%.2bpp $(RESDIR)/%.tilemap: $(RESDIR)/%.png
 	$(RGBGFX) $(GFXFLAGS) -o $(RESDIR)/$*.2bpp -t $(RESDIR)/$*.tilemap $<
 
 
-$(RESDIR)/winx.bin $(RESDIR)/winx.inc: $(RESDIR)/winx.asm
-	$(RGBASM) $(ASFLAGS) -o $(RESDIR)/winx.o $< > $(RESDIR)/winx.inc
-	$(RGBLINK) -x -o $(RESDIR)/winx.bin $(RESDIR)/winx.o
+$(RESDIR)/%.bin $(RESDIR)/%.inc: $(RESDIR)/%.asm
+	$(RGBASM) $(ASFLAGS) -o $(RESDIR)/$*.o $< > $(RESDIR)/$*.inc
+	$(RGBLINK) -x -o $(RESDIR)/$*.bin $(RESDIR)/$*.o
 
 
 tools/propack/rnc64: tools/propack/main.c
@@ -88,4 +88,7 @@ $(RESDIR)/%.size: $(RESDIR)/%
 
 
 $(RESDIR)/tiles.2bpp: $(RESDIR)/console_tiles.vert.2bpp $(RESDIR)/light_tiles.vert.2bpp $(RESDIR)/font.vert.2bpp $(RESDIR)/draft.uniq.2bpp
+	cat $^ > $@
+
+$(RESDIR)/data.bin: $(RESDIR)/text.bin $(RESDIR)/winx.bin
 	cat $^ > $@

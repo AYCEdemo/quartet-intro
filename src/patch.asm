@@ -2,7 +2,17 @@
 INCLUDE "hardware.inc/hardware.inc"
 INCLUDE "res/syms.asm"
 
+INCLUDE "res/text.inc"
 INCLUDE "res/winx.inc"
+
+
+; Base X position for each line, each assumed to be 10 chars long
+LINE1_X equ 75
+LINE2_X equ 75
+LINE3_X equ 75
+
+
+OAM_SWAP_SCANLINE equ $18
 
 
 lb: MACRO
@@ -40,7 +50,8 @@ vBGTiles:
 BASE_TILE equ LOW(vBGTiles / 16)
 LIGHT_BASE equ LOW(vSpriteTiles.light / 16)
 assert LIGHT_BASE == BASE_LIGHT_TILE, "Light base predicted = {BASE_LIGHT_TILE}, real = {LIGHT_BASE}"
-
+FONT_BASE equ LOW(vFontTiles / 16)
+assert FONT_BASE == FONT_BASE_TILE, "Font base predicted = {FONT_BASE_TILE}, real = {FONT_BASE} (remember to update charmap, maybe?)"
 
 
 SECTION "Entry point", ROM0[Q_EntryPoint]
@@ -214,7 +225,7 @@ Intro:
 	ldh [rSCY], a
 	ld a, STATF_LYC
 	ldh [rSTAT], a
-	ld a, $1C
+	ld a, OAM_SWAP_SCANLINE
 	ldh [rLYC], a
 	ld a, LCDCF_ON | LCDCF_WINON | LCDCF_OBJ16 | LCDCF_OBJ16 | LCDCF_OBJON | LCDCF_BGON
 	ldh [rLCDC], a
@@ -224,6 +235,9 @@ Intro:
 	; ld hl, SpritePos
 	lb bc, (SpritePos.end - SpritePos.light) / 2, SpritePos.light - SpritePos
 	ld de, wLightOAM.end
+	; Store text read ptr
+	assert wLightOAM.end == wText
+	push de
 .writeConsoleSprite
 	dec e ; dec de
 	xor a
@@ -262,10 +276,10 @@ Intro:
 	ld [de], a
 	jr nz, .clearOAM
 
-	; Decode that RLE
-	; ld hl, WindowXValues
-	ld de, wWindowXValuesRLE
+	; ld hl, Data
+	ld de, wData
 	call Q_RNCUnpack
+	; Decode that RLE
 	; ld hl, wWindowXValues ↓
 	ld h, d
 	ld l, e
@@ -294,17 +308,34 @@ Intro:
 	jr .unpackWX
 .done
 
+	; Init text OAM
+	ld hl, wTextOAM.end - 1
+.initTextOAM
+	xor a
+	ld [hld], a ; Attribute is constant
+	ld [hld], a ; Will be overwritten
+	ld [hld], a ; Hide them at the beginning
+	ld a, 8 + 16 ; Y position is constant
+	ld [hld], a
+	bit 6, h
+	jr nz, .initTextOAM
+
 	; Init vars
 	xor a
 	ldh [Q_hCurKeys], a
 	ld a, START_CNT
 	ldh [hFrameCounter], a
+	assert (START_CNT + 1) & 7 != 0, "Animation start ptr will not be loaded!"
 	ld de, wWindowXValues + START_OFS
 
 
 	; ACTUAL FX CODE GOES HERE
 MainLoop:
 	rst Q_WaitVBlank
+
+	ld a, HIGH(wTextOAM)
+	call Q_hOAMDMA
+
 	; On DMG, blink the Game Boy to make it gray-ish
 	; The Game Boy is hidden by the border on SGB, so that's fine
 	ldh a, [rOBP0]
@@ -316,24 +347,7 @@ MainLoop:
 	ldh [hFrameCounter], a
 	ld b, a
 
-	; Check if end of animation was reached; if so, re-swap tilemaps
-	cp START_CNT
-	jr z, .swapTilemaps
-	; Check if counter reached 0, in which case, cycle the animation
-	or b
-	jr nz, .noReset
-	; TODO: update text
-	; Reload animation ptr
-	ld hl, wWindowXValues
-	; Swap tilemap behind window for 2nd part of animation
-.swapTilemaps
-	ldh a, [rLCDC]
-	xor LCDCF_WIN9C00 | LCDCF_BG9C00
-	ldh [rLCDC], a
-.noReset
-
 	; Every 8 frames, step the animation by advancing the reload point
-	ld a, b
 	and 7
 	jr nz, .noStep
 	; Copy tiles using popslide (faster), since we know we won't be interrupted
@@ -353,12 +367,12 @@ MainLoop:
 	dec c
 	jr nz, .streamTile
 	; Restore SP and HL, and keep truckin
-	ld sp, $DFFE
+	ld sp, $DFFC
 	pop hl
-	inc hl
+	inc hl ; Skip high byte of ptr
 	; Read sprite tiles
 	ld a, [hli] ; Read sentinel byte
-	ld b, a
+	ld c, a
 	ld de, wLightOAM.light - 4 ; First iteration will be skipped, since carry is clear
 .writeLightSpriteTile
 	inc e ; inc de
@@ -370,7 +384,7 @@ MainLoop:
 	ld [de], a
 	inc e ; inc de
 	inc e ; inc de
-	sla b
+	sla c
 	jr nz, .writeLightSpriteTile
 	ld d, h
 	ld e, l
@@ -397,11 +411,99 @@ MainLoop:
 	sub SCRN_X + 7
 	jr nz, .stepWindow
 
+	; Check if end of animation will be reached; if so, re-swap tilemaps
+	; (Safe to do so because we're below the window, anyway)
+	ld a, b
+	cp START_CNT - 1
+	jr z, .swapTilemaps
+	; Check if counter is about to reach 0, in which case, cycle the animation
+	inc a
+	jr nz, .noReset
+
+	; Update text
+	pop hl ; Get back text ptr
+	; Read first line
+	ld de, wTextOAM + 2
+	lb bc, NB_TEXT_SPRITES + 1, NB_TEXT_SPRITES
+.readFirstLine
+	ld a, [hli]
+	and a
+	jr z, .firstLineDone
+	dec c ; Count one char for the len
+	ld [de], a
+	dec a
+	jr z, .readFirstLine ; Spaces don't actually count
+	dec b ; Count one character for clearing
+	inc e ; inc de
+	inc e ; inc de
+	inc e ; inc de
+	inc e ; inc de
+	jr .readFirstLine
+.firstLineDone
+	; Clear remaining tiles
+	xor a
+.clearFirstLine
+	ld [de], a
+	inc e ; inc de
+	inc e ; inc de
+	inc e ; inc de
+	inc e ; inc de
+	dec b
+	jr nz, .clearFirstLine
+	; Write 1st line X positions
+	ld de, wTextOAM + NB_TEXT_SPRITES * 4
+	ld a, c ; One too much, compensated for in the addition
+	add a, a
+	add a, a
+	; Account for OAM coord offset, and starting at the end
+	add a, LINE1_X + 8 + NB_TEXT_SPRITES * 8
+.writeLine1XPos
+	dec e ; dec de
+	dec e ; dec de
+	dec e ; dec de
+	sub 8
+	ld [de], a
+	dec e ; dec de
+	jr nz, .writeLine1XPos
+	; TODO
+.readSecondLine
+	ld a, [hli]
+	and a
+	jr z, .secondLineDone
+	; TODO
+	jr .readSecondLine
+.secondLineDone
+.readThirdLine
+	ld a, [hli]
+	and a
+	jr z, .thirdLineDone
+	; TODO
+	jr .readThirdLine
+.thirdLineDone
+	; If next char is $00, start from beginning
+	ld a, [hl]
+	and a
+	jr nz, .noTextLoop
+	ld hl, wText
+.noTextLoop
+	push hl ; Save for next iteration
+
+	; Reload animation ptr
+	ld hl, wWindowXValues
+	; Swap tilemap behind window for 2nd part of animation
+.swapTilemaps
+	ldh a, [rLCDC]
+	xor LCDCF_WIN9C00 | LCDCF_BG9C00
+	ldh [rLCDC], a
+.noReset
+
 	call Q_PollKeys
-	jr z, MainLoop
+	jp z, MainLoop
 
 
 	; TODO: on SGB, clear ICON_EN
+	pop hl
+
 	; The ROM relies on a lot of power-on state
 	di
 	call Q_ClearVRAM ; Also turns LCD off and returns with A = 0
@@ -453,9 +555,8 @@ NB_CONSOLE_SPRITES equ (@ - SpritePos) / 2
 NB_LIGHT_SPRITES equ (@ - SpritePos) / 2 - NB_CONSOLE_SPRITES
 .end
 ; Expected to be contiguous
-WindowXValues:
-INCBIN "res/winx.bin.rnc" ; Also the associated tiles
-.end
+Data:
+INCBIN "res/data.bin.rnc" ; Also the associated tiles
 
 ; Count is formatted as such:
 ; - High nibble is (16 - initial_copy_len)
@@ -505,15 +606,30 @@ IntTrampolinesEnd:
 
 
 
-SECTION "Shadow OAM", WRAM0[$C000]
+SECTION "Text shadow OAM", WRAM0[$C000]
+
+wTextOAM:
+	ds 40 * 4
+.end
+
+
+SECTION "Shadow OAM", WRAM0[$C100]
+
+EXPECTED = 40 - NB_LIGHT_SPRITES - NB_CONSOLE_SPRITES
+static_assert NB_TEXT_SPRITES_2 == EXPECTED, "{NB_TEXT_SPRITES_2} != {EXPECTED}"
 
 wLightOAM:
-	ds (40 - NB_LIGHT_SPRITES - NB_CONSOLE_SPRITES) * 4
+	ds NB_TEXT_SPRITES_2 * 4
 .light
 	ds NB_LIGHT_SPRITES * 4
 .console
 	ds NB_CONSOLE_SPRITES * 4
 .end
+
+wData:
+wText:
+INCLUDE "res/text.bin.size"
+	ds SIZE
 
 wWindowXValuesRLE:
 INCLUDE "res/winx.bin.size"
