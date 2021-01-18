@@ -201,7 +201,13 @@ Intro:
 	; ld de, vSpriteTiles
 	ld d, h
 	ld e, l
-	ld hl, Tiles
+	ld hl, Palettes
+	ld c, LOW(rBCPS)
+	call Q_CommitPalettes_writePalettes
+	; Boot ROM only writes 1 byte to OCPD after writing $80 to OCPS
+	lb bc, 1, LOW(rOCPD)
+	call Q_CommitPalettes_writePalette
+	; ld hl, Tiles
 	call Q_RNCUnpack
 	; ld hl, Tilemap
 	ld de, $99CC
@@ -539,6 +545,8 @@ MainLoop:
 	ldh [Q_hPractice], a ; This also needs to be reset
 	jp Init
 
+Palettes:
+INCBIN "res/palettes.bin"
 Tiles:
 INCBIN "res/tiles.2bpp.rnc"
 ; Expected to be contiguous
@@ -582,7 +590,7 @@ NB_LIGHT_SPRITES equ (@ - SpritePos) / 2 - NB_CONSOLE_SPRITES
 .end
 ; Expected to be contiguous
 Data:
-INCBIN "res/data.bin.rnc" ; Also the associated tiles
+INCBIN "res/data.bin.rnc"
 
 ; Count is formatted as such:
 ; - High nibble is (16 - initial_copy_len)
