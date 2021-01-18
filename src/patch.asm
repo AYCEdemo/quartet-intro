@@ -630,6 +630,9 @@ assert @ == Q_hVBlankTrampoline
 	ENDL
 IntTrampolinesEnd:
 
+SPACE_LEFT equ $8000 - @
+	PRINTT "SPACE LEFT: {d:SPACE_LEFT} bytes\n"
+
 
 
 SECTION "Text shadow OAM", WRAM0[$C000]
