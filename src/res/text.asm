@@ -51,7 +51,7 @@ SECTION "Text", ROM0[0]
 
 	frame "AYCE", "PRESENTS", "..."
 	frame "", "QUARTET", ""
-	frame "PROGRAM", "", "ISSOTM"
+	frame "CODE", "", "ISSOTM"
 	frame "GFX", "", "DOCTOR"
 	frame "MUSIC", "", "DEVED"
 	frame "PRESS ANY", "BTN FOR", "THE GAME"

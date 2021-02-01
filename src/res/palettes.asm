@@ -27,5 +27,3 @@ SECTION "Palettes", ROM0[0]
 	rgb 255, 255, 255
 	rgb 255, 255, 255
 	db 0
-
-PRINTT "NB_OBJ_PALS equ 1\n"

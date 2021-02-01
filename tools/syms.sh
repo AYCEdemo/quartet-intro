@@ -6,11 +6,9 @@ cut -d ';' -f 2- "$1" | while read line; do
 	if [[ -n "$name" ]]; then
 		bank=",BANK[$((0x$(cut -d ':' -f 1 <<<"$addr")))]"
 		addr=$((0x$(cut -d ':' -f 2 <<<"$addr")))
-		if [[ $addr -lt 0x4000 ]]; then
+		if [[ $addr -lt 0x8000 ]]; then
 			bank=
 			type=ROM0
-		elif [[ $addr -lt 0x8000 ]]; then
-			type=ROMX
 		elif [[ $addr -lt 0xa000 ]]; then
 			bank=
 			type=VRAM

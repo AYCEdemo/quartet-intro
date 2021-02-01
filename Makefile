@@ -63,24 +63,31 @@ $(RESDIR)/%.ofs.tilemap: tools/apply_ofs.py $(RESDIR)/$$(basename $$*).tilemap
 	@mkdir -p $(@D)
 	$^ $@
 
-%.uniq.2bpp %.uniq.tilemap: GFXFLAGS += -u
-%.vert.2bpp %.vert.tilemap: GFXFLAGS += -h
+%.uniq.2bpp %.uniq.1bpp %.uniq.tilemap: GFXFLAGS += -u
+%.vert.2bpp %.vert.1bpp %.vert.tilemap: GFXFLAGS += -h
 $(RESDIR)/%.2bpp $(RESDIR)/%.tilemap: $(RESDIR)/%.png
 	@mkdir -p $(RESDIR)/$(@*)
-	$(RGBGFX) $(GFXFLAGS) -o $(RESDIR)/$*.2bpp -t $(RESDIR)/$*.tilemap $<
+	$(RGBGFX) $(GFXFLAGS) -d 2 -o $(RESDIR)/$*.2bpp -t $(RESDIR)/$*.tilemap $<
+$(RESDIR)/%.1bpp $(RESDIR)/%.tilemap: $(RESDIR)/%.png
+	@mkdir -p $(RESDIR)/$(@*)
+	$(RGBGFX) $(GFXFLAGS) -d 1 -o $(RESDIR)/$*.1bpp -t $(RESDIR)/$*.tilemap $<
 
 
 $(RESDIR)/%.bin $(RESDIR)/%.inc: $(RESDIR)/%.asm
 	$(RGBASM) $(ASFLAGS) -o $(RESDIR)/$*.o $< > $(RESDIR)/$*.inc
-	$(RGBLINK) -x -o $(RESDIR)/$*.bin $(RESDIR)/$*.o
-
+	$(RGBLINK) $(LDFLAGS) -x -o $(RESDIR)/$*.bin $(RESDIR)/$*.o
+# Additional INCBIN'd dep
+$(RESDIR)/winx.bin $(RESDIR)/winx.inc: $(RESDIR)/gb_light.vert.1bpp
+$(RESDIR)/mus_data.bin: $(RESDIR)/musicdata.bin
+# 0x700 = 1792
+$(RESDIR)/mus_data.bin: ASFLAGS += -DDATA="`xxd -p -c 256 -l 256 -s 1792 src/$(RESDIR)/musicdata.bin`"
 
 tools/propack/rnc64: tools/propack/main.c
 	make -C $(@D) rnc64
 
 # Dalton's decruncher skips the 18-byte header (not useful at runtime)
 $(RESDIR)/%.rnc: $(RESDIR)/% tools/propack/rnc64
-	tools/propack/rnc64 p $< $@.tmp -m 2 && dd if=$@.tmp of=$@ bs=1 skip=18
+	tools/propack/rnc64 p $< $@.tmp -m 2 && dd if=$@.tmp of=$@ bs=1 skip=18 && rm $@.tmp
 
 # Useful to know how large a file will be when decompressed
 $(RESDIR)/%.size: $(RESDIR)/%

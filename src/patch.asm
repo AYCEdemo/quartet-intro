@@ -290,7 +290,6 @@ Intro:
 	ld de, wWindowXValuesRLE
 .unpackWX
 	ld a, [de]
-	assert WARN, HIGH(wWindowXValuesRLE.end) != HIGH(wWindowXValuesRLE), "Can optimize WindowXValues reader!"
 	inc de
 	srl a
 	ld b, a
@@ -331,10 +330,17 @@ Intro:
 	jr nz, .clearTextOAM
 
 	; Init vars
-	xor a
+	; xor a
 	ldh [Q_hCurKeys], a
 	ld a, START_CNT
 	ldh [hFrameCounter], a
+    ld hl, CompressedMusicData
+    ld de, wPatternData
+    call Q_RNCUnpack
+	call Q_Player_Initialize
+	xor a
+	call Q_Player_MusicStart
+	; Check whether the `.noStep` jump will be taken or not... it shouldn't be.
 	assert (START_CNT + 1) & 7 != 0, "Animation start ptr will not be loaded!"
 	ld de, wWindowXValues + START_OFS
 
@@ -367,12 +373,16 @@ MainLoop:
 	ld l, a
 	ld sp, hl
 	ld hl, vStreamedSpriteTiles
-	ld c, 16 * NB_STREAMED_SPRITES / 2
+	; Partial unrolling is necessary to perform WXzardry in time
+	; 16 * 2 tiles per sprite, but 4 bytes copied per iteration
+	ld c, 16 * 2 * NB_STREAMED_SPRITES / 4
 .streamTile
 	pop de
 	ld a, e
 	ld [hli], a
+	ld [hli], a
 	ld a, d
+	ld [hli], a
 	ld [hli], a
 	dec c
 	jr nz, .streamTile
@@ -487,7 +497,7 @@ MainLoop:
 	inc de
 	db $CA ; jp z, xxxx
 .readThirdLine
-	dec l ; dec hl ; Y → Attr
+	dec hl ; Y → Attr
 	dec l ; dec hl ; Attr → Tile
 .readAgain
 	ld a, c
@@ -528,6 +538,12 @@ MainLoop:
 	xor LCDCF_WIN9C00 | LCDCF_BG9C00
 	ldh [rLCDC], a
 .noReset
+
+	push hl
+	push de
+	call Player_MusicUpdate
+	pop de
+	pop hl
 
 	call Q_PollKeys
 	jp z, MainLoop
@@ -573,7 +589,7 @@ SpritePos: ; (X, Y), reversed from OAM order!
 NB_CONSOLE_SPRITES equ (@ - SpritePos) / 2
 	; Console
 	; These four are actually light sprites, but they use streamed tiles
-	db 114 + 8,  82 + 16
+	db 114 + 8,  76 + 16
 	db 111 + 8,  72 + 16
 	db 103 + 8,  72 + 16
 	db 100 + 8,  75 + 16
@@ -638,6 +654,244 @@ assert @ == Q_hVBlankTrampoline
 	ENDL
 IntTrampolinesEnd:
 
+
+Player_MusicUpdate:
+    xor a
+    ld hl, Q_hCarillonFFDC
+    ld [hli], a
+    ld a, [hli]
+    call Q_Player_MusicUpdateFreqSlide
+    call Q_Player_MusicUpdateCH1
+    call Q_Player_MusicUpdateCH2
+    call Q_Player_MusicUpdateCH3
+    call Q_Player_MusicUpdateCH4
+    ld hl, Q_hIsMusStopped
+    ld a, [hli]
+    or a
+    ret nz
+
+    ld a, [hli]
+    dec [hl]
+    jr z, jr_000_4422
+
+    sra a
+    cp [hl]
+    ret nz
+
+    jr jr_000_4423
+
+jr_000_4422:
+    ld [hl], a
+
+jr_000_4423:
+    inc l
+    xor a
+    or [hl]
+    jr nz, jr_000_4444
+
+    inc l
+    inc l
+    inc [hl]
+    ld e, [hl]
+    ld d, HIGH(wPatternTable)
+    assert LOW(wPatternTable) == 0
+
+jr_000_442e:
+    ld a, [de]
+    or a
+    jr nz, jr_000_4442
+
+    inc e
+    ld a, [de]
+    cpl
+    or a
+    jr nz, jr_000_443d
+
+    inc a
+    ld [Q_hIsMusStopped], a
+    ret
+
+
+jr_000_443d:
+    cpl
+    ld [hl], a
+    ld e, a
+    jr jr_000_442e
+
+jr_000_4442:
+    dec l
+    ld [hld], a
+
+jr_000_4444:
+    ld d, $FF ; HIGH(<Carillon data>)
+    ld a, [hli]
+    ld h, [hl]
+    ld l, a
+    ld a, [hli]
+    or a
+    jr z, jr_000_4465
+
+    ld e, $c9
+    bit 0, a
+    jr z, jr_000_4458
+
+    and $fe
+    ld [de], a
+    jr jr_000_4465
+
+jr_000_4458:
+    ld [de], a
+    ld a, [hl]
+    dec e
+    ld [de], a
+    dec e
+    ld a, $01
+    ld [de], a
+    dec e
+    ld a, [de]
+    and $fe
+    ld [de], a
+
+jr_000_4465:
+    inc l
+    ld a, [hli]
+    or a
+    jr z, jr_000_4482
+
+    ld e, $cf
+    bit 0, a
+    jr z, jr_000_4475
+
+    and $fe
+    ld [de], a
+    jr jr_000_4482
+
+jr_000_4475:
+    ld [de], a
+    ld a, [hl]
+    dec e
+    ld [de], a
+    dec e
+    ld a, $01
+    ld [de], a
+    dec e
+    ld a, [de]
+    and $fe
+    ld [de], a
+
+jr_000_4482:
+    inc l
+    ld a, [hli]
+    or a
+    jr z, jr_000_44aa
+
+    cp $ff
+    jr z, jr_000_44d9
+
+    ld e, $d6
+    bit 0, a
+    jr z, jr_000_4496
+
+    and $fe
+    ld [de], a
+    jr jr_000_44aa
+
+jr_000_4496:
+    ld [de], a
+    ld a, [hl]
+    dec e
+    ld [de], a
+    dec e
+    ld a, $fe
+    ld [de], a
+    dec e
+    cpl
+    ld [de], a
+    xor a
+    ld [Q_hMusSamCount], a
+    dec e
+    ld a, [de]
+    and $fa
+    ld [de], a
+
+jr_000_44aa:
+    inc l
+    ld a, [hli]
+    or a
+    jr z, jr_000_44bd
+
+    and $fe
+    ld e, $db
+    ld [de], a
+    dec e
+    ld a, $01
+    ld [de], a
+    dec e
+    ld a, [de]
+    and $fe
+    ld [de], a
+
+jr_000_44bd:
+    ld a, [hli]
+    ld b, a
+    ld e, $c3
+    ld a, l
+    ld [de], a
+    ld a, b
+    or a
+    jr z, jr_000_44d5
+
+    swap a
+    and $0f
+    add a
+    add $e0
+    ld h, $46
+    ld l, a
+    ld a, [hli]
+    ld h, [hl]
+    ld l, a
+    jp hl
+
+
+jr_000_44d5:
+    ld [Q_hMusModulate], a
+    ret
+
+
+jr_000_44d9:
+    ld e, $e7
+    ld a, $05
+    ld [de], a
+    ld a, [hl]
+    add $f0
+    ld c, a
+    ld b, $47
+    ld a, [bc]
+    add a
+    add a
+    inc e
+    ld [de], a
+    ld a, [hl]
+    add a
+    add $c0
+    ld b, $46
+    ld c, a
+    inc e
+    xor a
+    ld [de], a
+    inc e
+    ld a, [bc]
+    ld [de], a
+    inc c
+    inc e
+    ld a, [bc]
+    ld [de], a
+    jr jr_000_44aa
+
+CompressedMusicData:
+INCBIN "res/mus_data.bin.rnc"
+
+
 SPACE_LEFT equ $8000 - @
 	PRINTT "SPACE LEFT: {d:SPACE_LEFT} bytes\n"
 
@@ -650,7 +904,9 @@ wTextOAM:
 .end
 
 
-SECTION "Shadow OAM", WRAM0[$C100]
+SECTION "Shadow OAM", WRAM0[$C0FC]
+; The byte at $C1FC may be overwritten with $00 by the text updating code, so reserve some space
+	ds 4
 
 EXPECTED = 40 - NB_LIGHT_SPRITES - NB_CONSOLE_SPRITES
 static_assert NB_TEXT_SPRITES_2 == EXPECTED, "{NB_TEXT_SPRITES_2} != {EXPECTED}"
@@ -668,17 +924,26 @@ wText:
 INCLUDE "res/text.bin.size"
 	ds SIZE
 
-; The byte at $C1FC may be overwritten with $00 by the text updating code, but this buffer
-; is not reused after the initial decoding, so that's OK
 wWindowXValuesRLE:
 INCLUDE "res/winx.bin.size"
 	ds SIZE - NB_STREAMED_TILES * 16
 .end
+	static_assert @ == STREAMED_TILES_BASE, "Streamed tiles address mismatch! Predicted {STREAMED_TILES_BASE}, real {@}"
 wWindowXValuesTiles:
 	ds NB_STREAMED_TILES * 16
 wWindowXValues:
 	ds WXVAL_LEN
 .end::
+
+
+INCLUDE "res/mus_data.inc"
+	static_assert wPulseInstrPanningTable == Q_wPulseInstrPanningTable, "{wPulseInstrPanningTable} != {Q_wPulseInstrPanningTable}"
+
+SECTION "Music data", WRAM0[wPatternData]
+
+INCLUDE "res/mus_data.bin.size"
+	ds SIZE
+
 
 
 SECTION "HRAM", HRAM[$FF91]
