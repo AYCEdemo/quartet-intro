@@ -554,6 +554,7 @@ MainLoop:
 
 	; The ROM relies on a lot of power-on state
 	di
+	call Q_Player_MusicStop
 	call Q_ClearVRAM ; Also turns LCD off and returns with A = 0
 	ldh [rSCX], a
 	ldh [rSCY], a
