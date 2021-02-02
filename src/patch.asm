@@ -97,20 +97,10 @@ Intro:
 	; Init interrupts
 	ld hl, StatHandler
 	lb bc, hStatHandler.end - hStatHandler, LOW(hStatHandler)
-.copyHandler
-	ld a, [hli]
-	ldh [c], a
-	inc c
-	dec b
-	jr nz, .copyHandler
+	call CopyHRAM
 	; ld hl, IntTrampolines
 	lb bc, IntTrampolinesEnd - IntTrampolines, LOW(Q_hSTATTrampoline)
-.copyTrampolines
-	ld a, [hli]
-	ldh [c], a
-	inc c
-	dec b
-	jr nz, .copyTrampolines
+	call CopyHRAM
 
 	ld a, IEF_VBLANK | IEF_LCDC
 	ldh [rIE], a
@@ -147,16 +137,16 @@ Intro:
 .writeSecondaryMapRow
 	ld a, [bc] ; Read count
 	inc bc
-	ldh [hPreludeCopyCnt], a
 .copyPrelude
+	ldh [hPreludeCopyCnt], a
 	ld a, [hli]
 	ld [de], a
 	inc e ; inc de
 	ldh a, [hPreludeCopyCnt]
 	add a, $10
-	ldh [hPreludeCopyCnt], a
 	jr nc, .copyPrelude
 .copyTrailing
+	ldh [hPreludeCopyCnt], a
 	ld a, [hli] ; Advance read ptr
 	ld a, [bc] ; Read tile
 	inc bc
@@ -166,7 +156,6 @@ Intro:
 	jr z, .secondaryMapDone
 	ldh a, [hPreludeCopyCnt]
 	dec a
-	ldh [hPreludeCopyCnt], a
 	jr nz, .copyTrailing
 	ld a, BASE_TILE
 .writeTrailing
@@ -561,6 +550,16 @@ MainLoop:
 	ldh [rIE], a
 	ldh [Q_hPractice], a ; This also needs to be reset
 	jp Init
+
+
+CopyHRAM:
+	ld a, [hli]
+	ldh [c], a
+	inc c
+	dec b
+	jr nz, CopyHRAM
+	ret
+
 
 Palettes:
 INCBIN "res/palettes.bin"
