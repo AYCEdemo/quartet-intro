@@ -4,3 +4,6 @@
 [submodule "tools/propack"]
 	path = tools/propack
 	url = https://github.com/lab313ru/rnc_propack_source.git
+[submodule "tools/superfamiconv"]
+	path = tools/superfamiconv
+	url = https://github.com/optiroc/SuperFamiconv.git

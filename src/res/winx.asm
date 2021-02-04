@@ -42,7 +42,7 @@ ENDM
 BASE_TILE equ $2A
 t equ BASE_TILE ; Shorter alias
 LOOP_FRAME equ 6
-BLANK_TILES equ $7ED0
+BLANK_TILES equ $9D40
 
 s EQUS "* 16 + StreamedTiles"
 

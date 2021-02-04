@@ -122,13 +122,69 @@ Intro:
 	; The game only performs SGB detection **and init** only if DMG is initially detected!!
 	ldh [hIsSGB], a
 	jr z, .notSGB
-	; TODO: perform SGB init, including border transfer
+	; Perform SGB init, including border transfer
+	call Q_PatchOBJ_TRN
+	call Q_FreezeSGBScreen
+	ld hl, SGBBorder
+	call Q_TransferSGBTiles + 6 ; Skip turning the LCD off and loading the normal tiles
+	; The palette data is expected at $8800, but it's currently located at $9700
+	ld hl, $9700
+	ld de, $8800
+	ld bc, $80
+	call Q_Memcpy
+	; Turn LCD on, but with $8800 mapping, since tilemap was decompressed to $9000
+	ld hl, Q_PCT_TRNPacket
+	ld a, LCDCF_ON | LCDCF_BGON
+	call PerformCustomVRAMTransfer
+	ld hl, SOU_TRNProgram
+	ld de, $8000
+	call Q_RNCUnpack
+	; ld hl, SOU_TRNPacket
+	call PerformVRAMTransfer
+	ld hl, ICON_ENPacket
+	call Q_SendSGBPacketAndWait
 	; Also, disable changing the border! (ICON_EN)
 	; Don't forget to turn the LCD off again!
+	call Q_UnfreezeSGBScreen
 .notSGB
 
 	;; VRAM init
 	; Performed after SGB check because of the VRAM transfers
+
+	; Write CGB attrs
+	; Do this always because it saves a check, and do it first so it gets overwritten on DMG
+	ld a, 1
+	ldh [rVBK], a
+	ld hl, $99CC
+.writeAttrmap
+	ld de, AttrmapSpecs
+	ld a, [de] ; Read spec byte
+.unpackSpec
+	inc de
+	ld c, a
+	srl c
+	srl c
+	srl c
+	and 7
+.writeSpec
+	ld [hli], a
+	dec c
+	jr nz, .writeSpec
+	ld a, l
+	and $1F
+	jr nz, .notAtBOL
+	ld a, l
+	or $0C
+	ld l, a
+.notAtBOL
+	ld a, [de] ; Read next spec byte
+	and a
+	jr nz, .unpackSpec
+	bit 5, h
+	ld hl, $9DCC
+	jr z, .writeAttrmap
+	; xor a
+	ldh [rVBK], a
 
 	; Copy secondary tilemap
 	ld hl, Tilemap
@@ -208,8 +264,9 @@ Intro:
 	ld a, $E4
 	ldh [rBGP], a
 	xor a
-	ldh [rOBP0], a
 	ldh [rWY], a
+	ld a, %00010000
+	ldh [rOBP0], a
 	ld a, SCRN_X + 7
 	ldh [rWX], a
 	ld a, SCRN_VX - SCRN_X
@@ -561,6 +618,35 @@ CopyHRAM:
 	ret
 
 
+PerformVRAMTransfer:
+	ld a, LCDCF_ON | LCDCF_BG8000 | LCDCF_BGON
+PerformCustomVRAMTransfer:
+	; Skip setting tilemap & BGP (already set) and hook into loading LCDC (we want a custom value)
+	; This requires massaging the stack, though
+	push hl
+	jp Q_PerformVRAMTransfer + 32
+
+SGBBorder:
+INCBIN "res/sgb_border.bin.rnc"
+
+SOU_TRNProgram:
+INCBIN "res/sou_trn.bin.rnc"
+; These are DATA_SND packets that must be transferred before using SOU_TRN
+; Don't know why, but the manual says to do so...
+	db $79, $00, $09, $00, $0B, $AD, $C2, $02, $C9, $09, $D0, $1A, $A9, $01, $8D, $00
+	db $79, $0B, $09, $00, $0B, $42, $AF, $DB, $FF, $00, $F0, $05, $20, $73, $C5, $80
+	db $79, $16, $09, $00, $0B, $03, $20, $76, $C5, $A9, $31, $8D, $00, $42, $68, $68
+	db $79, $21, $09, $00, $01, $60, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+	db $79, $00, $08, $00, $03, $4C, $00, $09, $00, $00, $00, $00, $00, $00, $00, $00
+SOU_TRNPacket:
+	; 9 = SOU_TRN
+	db 9 << 3 | 1 ; Rest of the packet is don't care
+
+ICON_ENPacket:
+	; 14 = ICON_EN
+	db 14 << 3 | 1, %001
+
+
 Palettes:
 INCBIN "res/palettes.bin"
 Tiles:
@@ -571,7 +657,7 @@ INCBIN "res/draft.uniq.{x:BASE_TILE}.ofs.tilemap", 20
 ; Expected to be contiguous
 SpritePos: ; (X, Y), reversed from OAM order!
 	db 111 + 8,  72 + 16
-	db 103 + 8,  73 + 16
+	db 103 + 8,  72 + 16
 	db  95 + 8,  75 + 16
 	db  88 + 8,  78 + 16
 	db  88 + 8,  94 + 16
@@ -608,6 +694,83 @@ NB_LIGHT_SPRITES equ (@ - SpritePos) / 2 - NB_CONSOLE_SPRITES
 Data:
 INCBIN "res/data.bin.rnc"
 
+
+; Due to DMG compat, priority, flip and bank are never used, only the palette
+; Bits 7-3 = cnt
+; Bits 2-0 = palette
+; TODO: line end
+; TODO: terminator
+slice: macro
+	db (\1) << 3 | (\2)
+endm
+AttrmapSpecs:
+	slice  7, 1
+	slice 13, 0
+
+	slice  7, 1
+	slice 13, 0
+
+	slice  7, 1
+	slice 13, 0
+
+	slice  6, 2
+	slice  1, 1
+	slice 13, 0
+
+	slice  6, 2
+	slice  3, 0
+	slice 11, 3
+
+	slice  6, 2
+	slice 14, 3
+
+	slice  6, 2
+	slice 14, 3
+
+	slice  1, 2
+	slice  9, 4
+	slice 10, 0
+
+	slice 10, 4
+	slice 10, 0
+
+	slice 10, 4
+	slice 10, 0
+
+	slice  1, 2
+	slice  9, 4
+	slice  2, 1
+	slice  3, 5
+	slice  5, 1
+
+	slice  2, 2
+	slice  6, 4
+	slice  4, 2
+	slice  3, 5
+	slice  5, 1
+
+	slice 12, 2
+	slice  1, 5
+	slice  4, 2
+	slice  3, 1
+
+	slice 17, 2
+	slice  3, 1
+
+	slice 17, 2
+	slice  3, 1
+
+	slice 17, 2
+	slice  3, 1
+
+	slice 17, 2
+	slice  3, 1
+
+	slice 17, 2
+	slice  3, 1
+
+	db 0
+
 ; Count is formatted as such:
 ; - High nibble is (16 - initial_copy_len)
 ; - Low nibble is amount of tile IDs after it to copy
@@ -629,6 +792,7 @@ SecondaryMapCopySpecs:
 	spec $62, $09, $0A
 	spec $44, $0B, $0C, $0D, $0E
 	spec $15, $0B, $0F, $10, $11, $12
+
 
 StatHandler:
 	LOAD "STAT handler", HRAM[$FF80]
