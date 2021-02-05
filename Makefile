@@ -82,6 +82,7 @@ $(RESDIR)/sgb_border.bin: $(RESDIR)/sgb_border_tiles.4bpp
 $(RESDIR)/mus_data.bin: $(RESDIR)/musicdata.bin
 # 0x700 = 1792
 $(RESDIR)/mus_data.bin: ASFLAGS += -DDATA="`xxd -p -c 256 -l 256 -s 1792 src/$(RESDIR)/musicdata.bin`"
+$(RESDIR)/sou_trn.bin: $(RESDIR)/sou_trn_data.bin
 
 
 tools/propack/rnc64: tools/propack/main.c

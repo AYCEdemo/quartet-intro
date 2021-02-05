@@ -120,8 +120,8 @@ Intro:
 	call Q_DetectSGB
 	; DO NOT SET CONSOLE TYPE TO SGB
 	; The game only performs SGB detection **and init** only if DMG is initially detected!!
-	ldh [hIsSGB], a
 	jr z, .notSGB
+INCLUDE "res/sou_trn.inc"
 	; Perform SGB init, including border transfer
 	call Q_PatchOBJ_TRN
 	call Q_FreezeSGBScreen
@@ -136,17 +136,41 @@ Intro:
 	ld hl, Q_PCT_TRNPacket
 	ld a, LCDCF_ON | LCDCF_BGON
 	call PerformCustomVRAMTransfer
+	; Unpack sound program, as well as screen attrmap & palettes
 	ld hl, SOU_TRNProgram
 	ld de, $8000
 	call Q_RNCUnpack
-	; ld hl, SOU_TRNPacket
+	; ld hl, ATTR_TRNPacket
 	call PerformVRAMTransfer
-	ld hl, ICON_ENPacket
+	ld hl, PAL_TRNPacket
+	call PerformVRAMTransfer
+	; Disable changing colors
+	ld hl, ICON_ENBuf + 1
+	inc a ; ld a, %001 ; Disable changing colors
+	ld [hld], a
+	; 14 = ICON_EN
+	ld [hl], 14 << 3 | 1
 	call Q_SendSGBPacketAndWait
-	; Also, disable changing the border! (ICON_EN)
-	; Don't forget to turn the LCD off again!
-	call Q_UnfreezeSGBScreen
+	; Send Nintendo-required DATA_TRN packets before SOU_TRN
+	ld hl, $8000 + SOU_TRN_SIZE
+	ld c, 5
+.sendDATA_SND
+	call Q_SendSGBPacketAndWait
+	dec c
+	jr nz, .sendDATA_SND
+	; Perform sound data transfer
+	ld hl, SOU_TRNPacket
+	call PerformVRAMTransfer
+	; Start playing music
+	ld hl, SOUNDStartPacket
+	call Q_SendSGBPacketAndWait
+	; Commit palettes + attrmap & unfreeze screen
+	ld hl, PAL_SETPacket
+	call Q_SendSGBPacketAndWait
+	db $3E ; ld a, imm8
 .notSGB
+	xor a
+	ldh [hIsSGB], a
 
 	;; VRAM init
 	; Performed after SGB check because of the VRAM transfers
@@ -265,7 +289,7 @@ Intro:
 	ldh [rBGP], a
 	xor a
 	ldh [rWY], a
-	ld a, %00010000
+	ld a, %00010100
 	ldh [rOBP0], a
 	ld a, SCRN_X + 7
 	ldh [rWX], a
@@ -399,10 +423,13 @@ MainLoop:
 	call Q_hOAMDMA
 
 	; On DMG, blink the Game Boy to make it gray-ish
-	; The Game Boy is hidden by the border on SGB, so that's fine
+	ldh a, [hIsSGB]
+	and a
+	jr nz, .noBlinking
 	ldh a, [rOBP0]
 	xor $04
 	ldh [rOBP0], a
+.noBlinking
 
 	ldh a, [hFrameCounter]
 	inc a
@@ -587,7 +614,9 @@ MainLoop:
 
 	push hl
 	push de
-	call Player_MusicUpdate
+	ldh a, [hIsSGB]
+	and a
+	call z, Player_MusicUpdate
 	pop de
 	pop hl
 
@@ -595,7 +624,13 @@ MainLoop:
 	jp z, MainLoop
 
 
-	; TODO: on SGB, clear ICON_EN
+	; On SGB, stop sound and clear ICON_EN
+	ld hl, SOUNDStopPacket
+	call Q_SendSGBPacketAndWait
+	; xor a
+	ld hl, ICON_ENBuf + 1
+	ld [hld], a
+	call Q_SendSGBPacketAndWait
 	pop hl
 
 	; The ROM relies on a lot of power-on state
@@ -630,21 +665,23 @@ SGBBorder:
 INCBIN "res/sgb_border.bin.rnc"
 
 SOU_TRNProgram:
-INCBIN "res/sou_trn.bin.rnc"
-; These are DATA_SND packets that must be transferred before using SOU_TRN
-; Don't know why, but the manual says to do so...
-	db $79, $00, $09, $00, $0B, $AD, $C2, $02, $C9, $09, $D0, $1A, $A9, $01, $8D, $00
-	db $79, $0B, $09, $00, $0B, $42, $AF, $DB, $FF, $00, $F0, $05, $20, $73, $C5, $80
-	db $79, $16, $09, $00, $0B, $03, $20, $76, $C5, $A9, $31, $8D, $00, $42, $68, $68
-	db $79, $21, $09, $00, $01, $60, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
-	db $79, $00, $08, $00, $03, $4C, $00, $09, $00, $00, $00, $00, $00, $00, $00, $00
+INCBIN "res/sou_trn.bin.rnc" ; Including DATA_SND packets
+; Expected to be contiguous
+ATTR_TRNPacket:
+	; 21 = ATTR_TRN
+	db 21 << 3 | 1 ; Rest of the packet is don't care
+
+PAL_TRNPacket:
+	; 11 = PAL_TRN
+	db 11 << 3 | 1 ; Rest of the packet is don't care
+
 SOU_TRNPacket:
 	; 9 = SOU_TRN
 	db 9 << 3 | 1 ; Rest of the packet is don't care
 
-ICON_ENPacket:
-	; 14 = ICON_EN
-	db 14 << 3 | 1, %001
+SOUNDStopPacket:
+	; 8 = SOUND
+	db 8 << 3 | 1, 128, 128, $FF, 0
 
 
 Palettes:
@@ -1069,8 +1106,11 @@ wTextOAM:
 
 
 SECTION "Shadow OAM", WRAM0[$C0FC]
-; The byte at $C1FC may be overwritten with $00 by the text updating code, so reserve some space
-	ds 4
+; The byte at $C0FC may be overwritten with $00 by the text updating code, so reserve some space
+	db
+ICON_ENBuf:
+	dw
+	ds 1 ; Unused
 
 EXPECTED = 40 - NB_LIGHT_SPRITES - NB_CONSOLE_SPRITES
 static_assert NB_TEXT_SPRITES_2 == EXPECTED, "{NB_TEXT_SPRITES_2} != {EXPECTED}"
