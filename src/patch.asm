@@ -55,9 +55,9 @@ assert FONT_BASE == FONT_BASE_TILE, "Font base predicted = {FONT_BASE_TILE}, rea
 SECTION "Entry point", ROM0[Q_EntryPoint]
 
 EntryPoint: ; Only jump here during actual boot-up!!
-	; `call Q_Memcpy` will write to $5C7F + $5C7E, but these'll get ignored
+	; `jp Q_Memcpy` will `ret`, reading the word at `Retpoline`
 	; This will abort the init process, jumping into our patch
-	ld sp, Retpoline + 2
+	ld sp, Retpoline
 
 	cp BOOTUP_A_CGB
 	ld a, 0
@@ -70,7 +70,7 @@ EntryPoint: ; Only jump here during actual boot-up!!
 	ld hl, Q_OAMDMA
 	ld de, Q_hOAMDMA
 	ld bc, 8
-	call Q_Memcpy
+	jp Q_Memcpy
 Init: ; Jump here to re-perform initialization
 	sub a
 	ld bc, $1FFE
