@@ -45,6 +45,10 @@ vBGTiles:
 	ds NB_BG_TILES * 16
 	assert @ <= $9800, "Too many tiles! ({@} > $9800)"
 
+INCLUDE "res/palettes.bin.size"
+vPalettes: ; Temp area
+	ds SIZE
+
 BASE_TILE equ LOW(vBGTiles / 16)
 LIGHT_BASE equ LOW(vSpriteTiles.light / 16)
 assert LIGHT_BASE == BASE_LIGHT_TILE, "Light base predicted = {BASE_LIGHT_TILE}, real = {LIGHT_BASE}"
@@ -210,6 +214,29 @@ INCLUDE "res/sou_trn.inc"
 	; xor a
 	ldh [rVBK], a
 
+	xor a
+	ld hl, $8000
+	lb bc, vSpriteTiles - $8000, 0
+	call Q_MemsetWithIncr
+	; ld de, vSpriteTiles ↓
+	ld d, h
+	ld e, l
+	ld hl, Gfx
+	call Q_RNCUnpack
+	; ld hl, Tilemap
+	ld de, $99CC
+	lb bc, 20, 18
+	ld a, 32 - 20
+	call Q_CopyRows
+
+	; Write CGB palettes
+	ld hl, vPalettes
+	ld c, LOW(rBCPS)
+	call Q_CommitPalettes_writePalettes
+	; Boot ROM only writes 1 byte to OCPD after writing $80 to OCPS
+	lb bc, 1, LOW(rOCPD)
+	call Q_CommitPalettes_writePalette
+
 	; Copy secondary tilemap
 	ld hl, Tilemap
 	ld de, $9DCC
@@ -254,7 +281,7 @@ INCLUDE "res/sou_trn.inc"
 	lb bc, 20, 8
 	ld a, 32 - 20
 	call Q_CopyRows
-
+	; Write window strips, overwriting decompression area, too
 	ld hl, $9C00
 	ld a, BASE_TILE + 1
 	ld bc, 10 * SCRN_VX_B
@@ -263,33 +290,15 @@ INCLUDE "res/sou_trn.inc"
 	ld hl, $9800
 	ld bc, 10 * SCRN_VX_B
 	call Q_Memset
-	xor a
-	ld hl, $8000
-	lb bc, vSpriteTiles - $8000, 0
-	call Q_MemsetWithIncr
-	; ld de, vSpriteTiles
-	ld d, h
-	ld e, l
-	ld hl, Palettes
-	ld c, LOW(rBCPS)
-	call Q_CommitPalettes_writePalettes
-	; Boot ROM only writes 1 byte to OCPD after writing $80 to OCPS
-	lb bc, 1, LOW(rOCPD)
-	call Q_CommitPalettes_writePalette
-	; ld hl, Tiles
-	call Q_RNCUnpack
-	; ld hl, Tilemap
-	ld de, $99CC
-	lb bc, 20, 18
-	ld a, 32 - 20
-	call Q_CopyRows
 
 	; Write LCD params & turn it on
 	ld a, $E4
 	ldh [rBGP], a
 	xor a
 	ldh [rWY], a
-	ld a, %00010100
+	ldh a, [hIsSGB]
+	and %00001000
+	xor %00010100
 	ldh [rOBP0], a
 	ld a, SCRN_X + 7
 	ldh [rWX], a
@@ -306,7 +315,7 @@ INCLUDE "res/sou_trn.inc"
 	; Perform some additional setup work during the first (white) frame
 
 	; Write sprites
-	; ld hl, SpritePos
+	ld hl, SpritePos
 	lb bc, (SpritePos.end - SpritePos.light) / 2, SpritePos.light - SpritePos
 	ld de, wLightOAM.end
 	; Store text read ptr
@@ -684,14 +693,12 @@ SOUNDStopPacket:
 	db 8 << 3 | 1, 128, 128, $FF, 0
 
 
-Palettes:
-INCBIN "res/palettes.bin"
-Tiles:
-INCBIN "res/tiles.2bpp.rnc"
+Gfx:
+INCBIN "res/gfx.2bpp.rnc"
 ; Expected to be contiguous
 Tilemap:
 INCBIN "res/draft.uniq.{x:BASE_TILE}.ofs.tilemap", 20
-; Expected to be contiguous
+
 SpritePos: ; (X, Y), reversed from OAM order!
 	db 111 + 8,  72 + 16
 	db 103 + 8,  72 + 16
@@ -735,8 +742,7 @@ INCBIN "res/data.bin.rnc"
 ; Due to DMG compat, priority, flip and bank are never used, only the palette
 ; Bits 7-3 = cnt
 ; Bits 2-0 = palette
-; TODO: line end
-; TODO: terminator
+; TODO: this could be compressed as part of `data.bin.rnc` (there's enough room in WRAM)
 slice: macro
 	db (\1) << 3 | (\2)
 endm
@@ -1152,6 +1158,7 @@ INCLUDE "res/mus_data.bin.size"
 
 SECTION "HRAM", HRAM[$FF91]
 
+; $AF on SGB, 0 otherwise
 hIsSGB:
 	db
 hPreludeCopyCnt:

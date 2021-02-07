@@ -78,7 +78,14 @@ $(RESDIR)/%.bin $(RESDIR)/%.inc: $(RESDIR)/%.asm
 	$(RGBLINK) $(LDFLAGS) -x -o $(RESDIR)/$*.bin $(RESDIR)/$*.o
 # Additional INCBIN'd dep
 $(RESDIR)/winx.bin $(RESDIR)/winx.inc: $(RESDIR)/gb_light.vert.1bpp
-$(RESDIR)/sgb_border.bin: $(RESDIR)/sgb_border_tiles.4bpp
+$(RESDIR)/sgb_border.bin: $(RESDIR)/sgb_border_tiles.4bpp $(RESDIR)/screen_cover.pal $(RESDIR)/screen_cover.2bpp $(RESDIR)/screen_cover.tilemap $(RESDIR)/screen_cover.2bpp.size
+$(RESDIR)/sgb_border.bin: ASFLAGS += -DPAL="`xxd -p -c 48 $(RESDIR)/screen_cover.pal`"
+$(RESDIR)/sgb_border.bin: ASFLAGS += -DCOVER_MAP0="`xxd -p -l 126 -c 126 $(RESDIR)/screen_cover.tilemap`"
+$(RESDIR)/sgb_border.bin: ASFLAGS += -DCOVER_MAP1="`xxd -p -l 126 -c 126 -s 126 $(RESDIR)/screen_cover.tilemap`"
+$(RESDIR)/sgb_border.bin: ASFLAGS += -DCOVER_MAP2="`xxd -p -l 126 -c 126 -s 252 $(RESDIR)/screen_cover.tilemap`"
+$(RESDIR)/sgb_border.bin: ASFLAGS += -DCOVER_MAP3="`xxd -p -l 126 -c 126 -s 378 $(RESDIR)/screen_cover.tilemap`"
+$(RESDIR)/sgb_border.bin: ASFLAGS += -DCOVER_MAP4="`xxd -p -l 126 -c 126 -s 504 $(RESDIR)/screen_cover.tilemap`"
+$(RESDIR)/sgb_border.bin: ASFLAGS += -DCOVER_MAP5="`xxd -p -l 126 -c 126 -s 630 $(RESDIR)/screen_cover.tilemap`"
 $(RESDIR)/mus_data.bin: $(RESDIR)/musicdata.bin
 # 0x700 = 1792
 $(RESDIR)/mus_data.bin: ASFLAGS += -DDATA="`xxd -p -c 256 -l 256 -s 1792 src/$(RESDIR)/musicdata.bin`"
@@ -101,15 +108,14 @@ $(SUPERFAMICONV):
 	make -C tools/superfamiconv bin/superfamiconv
 
 $(RESDIR)/sgb_border_tiles.4bpp: $(RESDIR)/sgb_border_tiles.png $(SUPERFAMICONV)
-	$(SUPERFAMICONV) tiles -M snes -W 8 -H 8 -R -B 4 -o $(RESDIR)/out.png -i $< -d $@
-# $(RESDIR)/sgb_border.%: SFCFLAGS := -M snes -W 8 -H 8
-# # Intentional restriction to 2bpp to save space, we don't need more colors
-# $(RESDIR)/sgb_border.pal: $(RESDIR)/sgb_border.png $(SUPERFAMICONV)
-# 	$(SUPERFAMICONV) palette $(SFCFLAGS) -P 3 -C 4 -0 '#ffffff' -i $< -d $@
-# $(RESDIR)/sgb_border.1bpp: $(RESDIR)/sgb_border.png $(RESDIR)/sgb_border.pal $(SUPERFAMICONV)
-# 	$(SUPERFAMICONV) tiles -v $(SFCFLAGS) -B 1 -o $(RESDIR)/out.png -i $< -p $(RESDIR)/sgb_border.pal -d $@
-# $(RESDIR)/sgb_border.tilemap: $(RESDIR)/sgb_border.png $(RESDIR)/sgb_border.pal $(RESDIR)/sgb_border.2bpp $(SUPERFAMICONV)
-# 	$(SUPERFAMICONV) map $(SFCFLAGS) -B 2 -i $< -p $(RESDIR)/sgb_border.pal -t $(RESDIR)/sgb_border.2bpp -d $@
+	$(SUPERFAMICONV) tiles -M snes -W 8 -H 8 -R -B 4 -i $< -d $@
+
+$(RESDIR)/screen_cover.pal: $(RESDIR)/screen_cover.png $(SUPERFAMICONV)
+	$(SUPERFAMICONV) palette -M snes -W 8 -H 8 -P 3 -C 4 -0 '#ffffff' -i $< -d $@
+$(RESDIR)/screen_cover.2bpp: $(RESDIR)/screen_cover.png $(RESDIR)/screen_cover.pal $(SUPERFAMICONV)
+	$(SUPERFAMICONV) tiles -M snes -W 8 -H 8 -B 2 -i $< -p $(RESDIR)/screen_cover.pal -d $@
+$(RESDIR)/screen_cover.tilemap: $(RESDIR)/screen_cover.png $(RESDIR)/screen_cover.2bpp $(RESDIR)/screen_cover.pal $(SUPERFAMICONV)
+	$(SUPERFAMICONV) map -M snes -W 8 -H 8 -B 2 -i $< -t $(RESDIR)/screen_cover.2bpp -p $(RESDIR)/screen_cover.pal -d $@
 
 
 # Useful to know how large a file will be when decompressed
@@ -117,7 +123,7 @@ $(RESDIR)/%.size: $(RESDIR)/%
 	printf 'SIZE = %u' $$(wc -c $< | cut -d ' ' -f 1) > $@
 
 
-$(RESDIR)/tiles.2bpp: $(RESDIR)/console_tiles.vert.2bpp $(RESDIR)/light_tiles.vert.2bpp $(RESDIR)/font.vert.2bpp $(RESDIR)/draft.uniq.2bpp
+$(RESDIR)/gfx.2bpp: $(RESDIR)/console_tiles.vert.2bpp $(RESDIR)/light_tiles.vert.2bpp $(RESDIR)/font.vert.2bpp $(RESDIR)/draft.uniq.2bpp $(RESDIR)/palettes.bin
 	cat $^ > $@
 
 $(RESDIR)/data.bin: $(RESDIR)/text.bin $(RESDIR)/winx.bin

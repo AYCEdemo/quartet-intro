@@ -3,18 +3,18 @@
 
 A cracktro for *Quartet*, courtesy of AYCE :)
 
-Careful when cloning that this repo uses `hardware.inc` and `rnc_propack_source` as submodules.
+Careful when cloning that this repo uses `hardware.inc`, `superfamiconv` and `rnc_propack_source` as submodules.
 
 ## Building
 
 You need `quartet.gb` at the root of the repo (not provided) and RGBDS installed.
-SHA256 of ROM used: `dcf0199e5fbc40cdf06131c376f821f275c3d518608de04ce1cfbe4d47c472aa`.
+Be careful that \~3 different revisions of *Quartet* were released; SHA256 of the ROM we used: `dcf0199e5fbc40cdf06131c376f821f275c3d518608de04ce1cfbe4d47c472aa`.
 
 Then run `make`.
 
 ## Notes
 
-All symbols RE'd from the ROM (see `quartet.sym`) are available, prefixed with `Q_`, and with dots replaced with `.`.
+All symbols RE'd from the ROM (see `quartet.sym`) are available in the code, prefixed with `Q_`, and with dots replaced with `_`.
 
 ### Text printing
 
