@@ -39,11 +39,10 @@ SECTION "Palettes", ROM0[0]
 	rgb 140, 140, 140 ; Cartridge edges
 	rgb   0,   0,   0 ; Unused
 ; BG6-7
-	ds 2 * 4 * 2
+	ds 2 * 4 * 2, 0
 
 ; OBJ0
-	db 0 ; Ignored
+	dw 0 ; Unused
 	rgb   8, 128, 128 ; GB shell (flashing on DMG)
 	rgb  68,  40,  91 ; GB shell "edges"
 	rgb 255, 255, 255 ; GB light & text
-	db 0

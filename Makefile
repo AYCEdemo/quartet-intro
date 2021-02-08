@@ -123,7 +123,10 @@ $(RESDIR)/%.size: $(RESDIR)/%
 	printf 'SIZE = %u' $$(wc -c $< | cut -d ' ' -f 1) > $@
 
 
-$(RESDIR)/gfx.2bpp: $(RESDIR)/console_tiles.vert.2bpp $(RESDIR)/light_tiles.vert.2bpp $(RESDIR)/font.vert.2bpp $(RESDIR)/draft.uniq.2bpp $(RESDIR)/palettes.bin
+# The first row is just some window tiles, they're not part of the image proper
+$(RESDIR)/draft.%.tilemap: $(RESDIR)/draft.uniq.%.ofs.tilemap
+	dd if=$< of=$@ bs=1 skip=20
+$(RESDIR)/gfx.%.bin: $(RESDIR)/console_tiles.vert.2bpp $(RESDIR)/light_tiles.vert.2bpp $(RESDIR)/font.vert.2bpp $(RESDIR)/draft.uniq.2bpp $(RESDIR)/palettes.bin $(RESDIR)/draft.%.tilemap
 	cat $^ > $@
 
 $(RESDIR)/data.bin: $(RESDIR)/text.bin $(RESDIR)/winx.bin

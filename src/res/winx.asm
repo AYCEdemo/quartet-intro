@@ -4,7 +4,7 @@ INCLUDE "hardware.inc/hardware.inc"
 
 SECTION "Data", ROM0[0]
 
-LOAD "Decompressed data", WRAM0[$C22A]
+LOAD "Decompressed data", WRAM0[$C22C]
 
 WXVAL_LEN = 0 ; Length of dest buffer
 CUR_FRAME = 0

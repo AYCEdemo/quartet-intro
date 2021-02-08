@@ -17,6 +17,7 @@ INCBIN "res/sou_trn_data.bin"
 	PRINTT "SOU_TRN_SIZE equ {@} - $8000\n"
 
 
+	PRINTT "SOU_TRN_DATA_SND equ {@}\n"
 ; These are DATA_SND packets that must be transferred before using SOU_TRN
 ; Don't know why, but the manual says to do so...
 	db $79, $00, $09, $00, $0B, $AD, $C2, $02, $C9, $09, $D0, $1A, $A9, $01, $8D, $00
@@ -44,7 +45,7 @@ endm
 
 atf: macro
 ATF_NUM equ (@ - $8000) / 90
-	PRINTT "; ATF_NUM equ {ATF_NUM}\n"
+	PRINTT "ATF_NUM equ {ATF_NUM}\n"
 ALGN = (@ - $8000) % 90
 	static_assert ALGN == 0, "Bad align {d:ALGN}"
 
@@ -59,13 +60,13 @@ ALGN = (@ - $8000) % 90
 	attr_row  1, 1, 1, 1,  1, 1, 1, 1,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0
 	attr_row  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0
 	attr_row  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  3, 3, 3, 0,  0, 0, 0, 0
-	attr_row  2, 0, 0, 0,  0, 0, 0, 0,  0, 0, 1, 3,  3, 3, 3, 0,  0, 0, 0, 0
+	attr_row  2, 0, 0, 0,  0, 0, 0, 0,  0, 0, 1, 3,  3, 3, 3, 3,  0, 0, 0, 0
 	attr_row  2, 2, 0, 0,  0, 0, 0, 0,  2, 2, 2, 3,  3, 3, 3, 3,  1, 1, 1, 1
 
-	attr_row  2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 3,  3, 3, 3, 3,  1, 1, 1, 1
-	attr_row  2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 3,  3, 3, 3, 3,  1, 1, 1, 1
+	attr_row  2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 3,  3, 3, 3, 1,  1, 1, 1, 1
+	attr_row  2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 3,  3, 3, 3, 1,  1, 1, 1, 1
 	attr_row  2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 0, 0,  3, 3, 3, 1,  1, 1, 1, 1
-	attr_row  2, 2, 2, 2,  0, 0, 0, 0,  0, 0, 0, 0,  3, 3, 2, 2,  1, 1, 1, 1
+	attr_row  2, 2, 2, 2,  0, 0, 0, 0,  0, 0, 0, 0,  2, 3, 2, 2,  1, 1, 1, 1
 	attr_row  2, 2, 2, 2,  2, 2, 0, 0,  0, 0, 0, 0,  2, 2, 2, 2,  1, 1, 1, 1
 	attr_row  2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 2,  2, 2, 2, 2
 endm
@@ -74,10 +75,11 @@ PAL0 equs "dw $7fff, $5172, $3d4a, $0000"
 PAL1 equs "dw $7fff, $5172, $3d4a, $38a5"
 PAL2 equs "dw $7fff, $5172, $4d2c, $38a5"
 PAL3 equs "dw $7fff, $4d2c, $5172, $4de5"
+PAL_GREY equs "dw $7fff, $56b5, $6b5a, $0000"
 
 pal: macro
 PAL\1_NUM equ (@ - $8000) / 8
-	PRINTT "; PAL\1_NUM equ {PAL\1_NUM}\n"
+	PRINTT "PAL\1_NUM equ {PAL\1_NUM}\n"
 ALGN = (@ - $8000) % 8
 	static_assert ALGN == 0, "Bad align {d:ALGN}"
 
@@ -88,9 +90,9 @@ endm
 BYTES_TILL_ATF equs "((90 - (@ - $8000) % 90) % 90)"
 PAL_ALIGN_PADDING equs "((8 - (@ - $8000) % 8) % 8)"
 NUM = BYTES_TILL_ATF
-	PRINTT "; BYTES_TILL_ATF equ {d:NUM}\n"
+	PRINTT "BYTES_TILL_ATF equ {d:NUM}\n"
 NUM = PAL_ALIGN_PADDING
-	PRINTT "; PAL_ALIGN_PADDING equ {d:NUM}\n"
+	PRINTT "PAL_ALIGN_PADDING equ {d:NUM}\n"
 
 	ds BYTES_TILL_ATF
 	atf
@@ -99,6 +101,7 @@ NUM = PAL_ALIGN_PADDING
 	pal 1
 	pal 2
 	pal 3
+	pal _GREY
 
 
 	; TODO: this could instead be stored between two palettes, using the latter's color #0 (since it's ignored)

@@ -2,6 +2,7 @@
 INCLUDE "hardware.inc/hardware.inc"
 INCLUDE "res/syms.asm"
 
+INCLUDE "res/sou_trn.inc"
 INCLUDE "res/text.inc"
 INCLUDE "res/winx.inc"
 
@@ -44,17 +45,25 @@ vFontTiles:
 vBGTiles:
 	ds NB_BG_TILES * 16
 	assert @ <= $9800, "Too many tiles! ({@} > $9800)"
+BASE_TILE equ LOW(vBGTiles / 16)
 
 INCLUDE "res/palettes.bin.size"
 vPalettes: ; Temp area
 	ds SIZE
 
-BASE_TILE equ LOW(vBGTiles / 16)
+INCLUDE "res/draft.{x:BASE_TILE}.tilemap.size"
+vTilemapDecompress:
+	ds SIZE
+assert @ < $99CC, "Tilemap getting decompressed over its target area"
+
 LIGHT_BASE equ LOW(vSpriteTiles.light / 16)
 assert LIGHT_BASE == BASE_LIGHT_TILE, "Light base predicted = {BASE_LIGHT_TILE}, real = {LIGHT_BASE}"
 FONT_BASE equ LOW(vFontTiles / 16)
 assert FONT_BASE == FONT_BASE_TILE, "Font base predicted = {FONT_BASE_TILE}, real = {FONT_BASE} (remember to update charmap, maybe?)"
 
+
+
+;; Patching the game's entry point to jump to our code
 
 SECTION "Entry point", ROM0[Q_EntryPoint]
 
@@ -89,10 +98,175 @@ Init: ; Jump here to re-perform initialization
 	jp Q_Init
 
 
-SECTION "Patch", ROM0[$5C7C]
+
+;; Some code put in unused space in the base ROM
+;; Yes, we're THAT short on space. ><
+
+SECTION "CopyHRAM", ROM0[Q_SendPAL_PRI_packet + 2]
+
+BlankSGBFramebuf:
+	; Turn LCD on without BG so that blank is displayed, avoiding on-screen garbage
+	ld a, LCDCF_ON
+	ldh [rLCDC], a
+	call Q_Wait5Frames
+	jp Q_TurnLCDOff
+
+CopyRows: ; Has to fallthrough
+	ld b, 20
+	ld a, 32 - 20
+	; fallthrough
+
+assert @ == Q_CopyRows, "{@} != {Q_CopyRows}"
+
+; Packet padding 0 and 1 are further below
+
+SECTION "Packet padding 10", ROM0[Q_CHR_TRNPacket + 2]
+
+StatHandler:
+	LOAD "STAT handler", HRAM[$FF80]
+hStatHandler:
+	ld a, HIGH(wLightOAM)
+	ldh [rDMA], a
+	ld a, 40
+.wait
+	dec a
+	jr nz, .wait
+	pop af
+	reti
+.end
+	ENDL
+StatHandlerEnd:
+; Expected to be contiguous
+IntTrampolines:
+	LOAD "Int trampolines", HRAM[Q_hSTATTrampoline]
+	push af
+	jr hStatHandler
+
+assert @ == Q_hVBlankTrampoline
+	jp Q_DefaultVBlankHandler
+	ENDL
+IntTrampolinesEnd:
+
+CopySGBPalettes:
+	; The palette data is expected at $8800, but it's currently located at $9700
+	ld hl, $9700
+	ld de, $8800
+	ld bc, $80
+	jp Q_Memcpy
+
+	ds 1 ; Unused
+
+assert @ == Q_PCT_TRNPacket, "{@} != {Q_PCT_TRNPacket}" ; CHR_TRN "2nd half" goes unused
+
+SECTION "Packet padding 12", ROM0[Q_PCT_TRNPacket + 1]
+
+WriteWindowSlice:
+	ld l, 0
+	ld bc, 10 * SCRN_VX_B
+	jp Q_Memset
+
+ICON_ENPackets:
+	; 14 = ICON_EN
+.disable
+	db 14 << 3 | 1, %001 ; Disable swapping borders
+.enable
+	db 14 << 3 | 1, %000 ; Enable everything
+
+	ds 3 ; Unused
+
+assert @ == Q_OnePlayerPacket, "{@} != {Q_OnePlayerPacket}"
+
+SECTION "Packet padding 13", ROM0[Q_OnePlayerPacket + 2]
+
+PerformVRAMTransfer:
+	ld a, LCDCF_ON | LCDCF_BG8000 | LCDCF_BGON
+PerformCustomVRAMTransfer:
+	; Skip setting tilemap & BGP (already set) and hook into loading LCDC (we want a custom value)
+	; This requires massaging the stack, though
+	push hl
+	jp Q_PerformVRAMTransfer + 32
+
+SOU_TRNPacket:
+	; 9 = SOU_TRN
+	db 9 << 3 | 1 ; Rest of the packet is don't care
+
+PAL_TRNPacket: ; ICON_ENPackets.disable + 16
+	; 11 = PAL_TRN
+	db 11 << 3 | 1 ; Rest of the packet is don't care
+
+	ds 1 ; Unused
+
+SOUNDStopPacket: ; ICON_ENPackets.enable + 16
+	; 8 = SOUND
+	db 8 << 3 | 1, 128, 128, $FF, 0
+
+	ds 0 ; Unused
+
+assert @ == Q_TwoPlayerPacket, "{@} != {Q_TwoPlayerPacket}"
+
+SECTION "Packet padding 14 + 15", ROM0[Q_TwoPlayerPacket + 2]
+
+CopyHRAM:
+	ld a, [hli]
+	ldh [c], a
+	inc c
+	dec b
+	jr nz, CopyHRAM
+	ret
 
 Retpoline:
 	dw Intro
+
+PAL_SETResetPacket: ; SOUNDStopPacket + 16
+	; 10 = PAL_SET
+	db 10 << 3 | 1
+	dw PAL_GREY_NUM, PAL_GREY_NUM, PAL_GREY_NUM, PAL_GREY_NUM
+	db $40 | $80 | 44 ; Cancel freeze, apply blank ATF
+
+	ds 4 ; Unused
+
+assert @ == Q_Font, "{@} != {Q_Font}" ; OBJ_TRN packet goes unused
+
+; Both of these MASK_EN packets go unused
+SECTION "Packet padding 0 + 1", ROM0[Q_MASK_ENBlackPacket]
+
+; ResetSGB needs to return with A == 0 to meet caller's expectations
+; Fortunately, Q_SendSGBPacketAndWait finishes with Q_SGBWait, which does return with A == 0
+ResetSGB:
+	call BlankSGBFramebuf
+	ld hl, Q_PCT_TRNPacket
+	call PerformVRAMTransfer
+	; Re-enable color switching
+	ld hl, ICON_ENPackets.enable
+	; Stop SNES music
+	assert SOUNDStopPacket == ICON_ENPackets.enable + 16, "{SOUNDStopPacket} != {ICON_ENPackets.enable} + 16"
+	; Clear palette layout
+	assert PAL_SETResetPacket == SOUNDStopPacket + 16, "{PAL_SETResetPacket} != {SOUNDStopPacket} + 16"
+	ld c, 3
+	; fallthrough
+
+SendNPackets:
+	call Q_SendSGBPacketAndWait
+	dec c
+	jr nz, SendNPackets
+	ret
+
+ClearVRA01:
+	inc a ; ld a, $81
+	ldh [rVBK], a
+	call Q_ClearVRAM
+	ldh [rVBK], a
+	jp Q_ClearVRAM
+
+	ds 0 ; Unused
+
+assert @ == Q_OBJ_TRNPatchPart1, "{@} != {Q_OBJ_TRNPatchPart1}"
+
+
+
+;; The main grunt.
+
+SECTION "Patch", ROM0[$5C7C] ; End of ROM
 
 
 Intro:
@@ -102,6 +276,8 @@ Intro:
 	ld hl, StatHandler
 	lb bc, hStatHandler.end - hStatHandler, LOW(hStatHandler)
 	call CopyHRAM
+	; There's one byte between these two, so we'll copy 1 extra garbage byte over memory we don't use
+	assert IntTrampolines == StatHandlerEnd, "{IntTrampolines} != {StatHandlerEnd}"
 	; ld hl, IntTrampolines
 	lb bc, IntTrampolinesEnd - IntTrampolines, LOW(Q_hSTATTrampoline)
 	call CopyHRAM
@@ -114,9 +290,7 @@ Intro:
 	ldh [Q_hVBlankFlag], a
 
 	; Turn LCD off for gfx init
-	rst Q_WaitVBlank
-	xor a
-	ldh [rLCDC], a
+	call Q_TurnLCDOff
 
 	ldh a, [Q_hConsoleType]
 	and a
@@ -125,17 +299,12 @@ Intro:
 	; DO NOT SET CONSOLE TYPE TO SGB
 	; The game only performs SGB detection **and init** only if DMG is initially detected!!
 	jr z, .notSGB
-INCLUDE "res/sou_trn.inc"
 	; Perform SGB init, including border transfer
 	call Q_PatchOBJ_TRN
 	call Q_FreezeSGBScreen
 	ld hl, SGBBorder
 	call Q_TransferSGBTiles + 6 ; Skip turning the LCD off and loading the normal tiles
-	; The palette data is expected at $8800, but it's currently located at $9700
-	ld hl, $9700
-	ld de, $8800
-	ld bc, $80
-	call Q_Memcpy
+	call CopySGBPalettes
 	; Turn LCD on, but with $8800 mapping, since tilemap was decompressed to $9000
 	ld hl, Q_PCT_TRNPacket
 	ld a, LCDCF_ON | LCDCF_BGON
@@ -146,27 +315,24 @@ INCLUDE "res/sou_trn.inc"
 	call Q_RNCUnpack
 	; ld hl, ATTR_TRNPacket
 	call PerformVRAMTransfer
-	ld hl, PAL_TRNPacket
-	call PerformVRAMTransfer
 	; Disable changing colors
-	ld hl, ICON_ENBuf + 1
-	inc a ; ld a, %001 ; Disable changing colors
-	ld [hld], a
-	; 14 = ICON_EN
-	ld [hl], 14 << 3 | 1
+	ld hl, ICON_ENPackets.disable
 	call Q_SendSGBPacketAndWait
-	; Send Nintendo-required DATA_TRN packets before SOU_TRN
-	ld hl, $8000 + SOU_TRN_SIZE
+	; ld hl, PAL_TRNPacket
+	assert PAL_TRNPacket == ICON_ENPackets.disable + 16, "{PAL_TRNPacket}, {ICON_ENPackets.disable}: bad!"
+	call PerformVRAMTransfer
+	; Send Nintendo-required DATA_SND packets before SOU_TRN
+	ld hl, SOU_TRN_DATA_SND
 	ld c, 5
-.sendDATA_SND
-	call Q_SendSGBPacketAndWait
-	dec c
-	jr nz, .sendDATA_SND
+	call SendNPackets
+	assert SOU_TRN_DATA_SND + 5 * 16 == SOUNDStartPacket
+	push hl
 	; Perform sound data transfer
 	ld hl, SOU_TRNPacket
 	call PerformVRAMTransfer
+	call BlankSGBFramebuf
 	; Start playing music
-	ld hl, SOUNDStartPacket
+	pop hl
 	call Q_SendSGBPacketAndWait
 	; Commit palettes + attrmap & unfreeze screen
 	ld hl, PAL_SETPacket
@@ -181,7 +347,7 @@ INCLUDE "res/sou_trn.inc"
 
 	; Write CGB attrs
 	; Do this always because it saves a check, and do it first so it gets overwritten on DMG
-	ld a, 1
+	inc a ; ld a, 1 (At least on CGB, where it's sufficient)
 	ldh [rVBK], a
 	ld hl, $99CC
 .writeAttrmap
@@ -214,7 +380,7 @@ INCLUDE "res/sou_trn.inc"
 	; xor a
 	ldh [rVBK], a
 
-	xor a
+	; xor a
 	ld hl, $8000
 	lb bc, vSpriteTiles - $8000, 0
 	call Q_MemsetWithIncr
@@ -223,22 +389,14 @@ INCLUDE "res/sou_trn.inc"
 	ld e, l
 	ld hl, Gfx
 	call Q_RNCUnpack
-	; ld hl, Tilemap
-	ld de, $99CC
-	lb bc, 20, 18
-	ld a, 32 - 20
-	call Q_CopyRows
 
 	; Write CGB palettes
 	ld hl, vPalettes
 	ld c, LOW(rBCPS)
-	call Q_CommitPalettes_writePalettes
-	; Boot ROM only writes 1 byte to OCPD after writing $80 to OCPS
-	lb bc, 1, LOW(rOCPD)
-	call Q_CommitPalettes_writePalette
+	call Q_CommitPalettes_writePalettes - 4
 
 	; Copy secondary tilemap
-	ld hl, Tilemap
+	ld hl, vTilemapDecompress
 	ld de, $9DCC
 	ld bc, SecondaryMapCopySpecs
 .writeSecondaryMapRow
@@ -278,18 +436,21 @@ INCLUDE "res/sou_trn.inc"
 .secondaryMapDone
 	; Just copy the rest
 	ld de, $9F0C
-	lb bc, 20, 8
-	ld a, 32 - 20
-	call Q_CopyRows
+	ld c, 8
+	call CopyRows
+
+	ld hl, vTilemapDecompress
+	ld de, $99CC
+	ld c, 18
+	call CopyRows
+
 	; Write window strips, overwriting decompression area, too
-	ld hl, $9C00
 	ld a, BASE_TILE + 1
-	ld bc, 10 * SCRN_VX_B
-	call Q_Memset
-	dec a ; ld a, $80
-	ld hl, $9800
-	ld bc, 10 * SCRN_VX_B
-	call Q_Memset
+	ld h, HIGH($9C00)
+	call WriteWindowSlice
+	dec a ; ld a, BASE_TILE
+	ld h, HIGH($9800)
+	call WriteWindowSlice
 
 	; Write LCD params & turn it on
 	ld a, $E4
@@ -413,9 +574,9 @@ INCLUDE "res/sou_trn.inc"
 	ldh [Q_hCurKeys], a
 	ld a, START_CNT
 	ldh [hFrameCounter], a
-    ld hl, CompressedMusicData
-    ld de, wPatternData
-    call Q_RNCUnpack
+	ld hl, CompressedMusicData
+	ld de, wPatternData
+	call Q_RNCUnpack
 	call Q_Player_Initialize
 	xor a
 	call Q_Player_MusicStart
@@ -633,42 +794,21 @@ MainLoop:
 	jp z, MainLoop
 
 
-	; On SGB, stop sound and clear ICON_EN
-	ld hl, SOUNDStopPacket
-	call Q_SendSGBPacketAndWait
-	; xor a
-	ld hl, ICON_ENBuf + 1
-	ld [hld], a
-	call Q_SendSGBPacketAndWait
 	pop hl
 
 	; The ROM relies on a lot of power-on state
-	di
 	call Q_Player_MusicStop
-	call Q_ClearVRAM ; Also turns LCD off and returns with A = 0
+	call ClearVRA01 ; Also turns LCD off and returns with A = 0
+	ldh a, [hIsSGB]
+	and a
+	call nz, ResetSGB ; Returns with A == 0
+	di
 	ldh [rSCX], a
 	ldh [rSCY], a
 	ldh [rIE], a
 	ldh [Q_hPractice], a ; This also needs to be reset
 	jp Init
 
-
-CopyHRAM:
-	ld a, [hli]
-	ldh [c], a
-	inc c
-	dec b
-	jr nz, CopyHRAM
-	ret
-
-
-PerformVRAMTransfer:
-	ld a, LCDCF_ON | LCDCF_BG8000 | LCDCF_BGON
-PerformCustomVRAMTransfer:
-	; Skip setting tilemap & BGP (already set) and hook into loading LCDC (we want a custom value)
-	; This requires massaging the stack, though
-	push hl
-	jp Q_PerformVRAMTransfer + 32
 
 SGBBorder:
 INCBIN "res/sgb_border.bin.rnc"
@@ -680,24 +820,9 @@ ATTR_TRNPacket:
 	; 21 = ATTR_TRN
 	db 21 << 3 | 1 ; Rest of the packet is don't care
 
-PAL_TRNPacket:
-	; 11 = PAL_TRN
-	db 11 << 3 | 1 ; Rest of the packet is don't care
-
-SOU_TRNPacket:
-	; 9 = SOU_TRN
-	db 9 << 3 | 1 ; Rest of the packet is don't care
-
-SOUNDStopPacket:
-	; 8 = SOUND
-	db 8 << 3 | 1, 128, 128, $FF, 0
-
 
 Gfx:
-INCBIN "res/gfx.2bpp.rnc"
-; Expected to be contiguous
-Tilemap:
-INCBIN "res/draft.uniq.{x:BASE_TILE}.ofs.tilemap", 20
+INCBIN "res/gfx.{x:BASE_TILE}.bin.rnc"
 
 SpritePos: ; (X, Y), reversed from OAM order!
 	db 111 + 8,  72 + 16
@@ -837,263 +962,238 @@ SecondaryMapCopySpecs:
 	spec $15, $0B, $0F, $10, $11, $12
 
 
-StatHandler:
-	LOAD "STAT handler", HRAM[$FF80]
-hStatHandler:
-	ld a, HIGH(wLightOAM)
-	ldh [rDMA], a
-	ld a, 40
-.wait
-	dec a
-	jr nz, .wait
-	pop af
-	reti
-.end
-	ENDL
-
-IntTrampolines:
-	LOAD "Int trampolines", HRAM[Q_hSTATTrampoline]
-	push af
-	jr hStatHandler
-
-assert @ == Q_hVBlankTrampoline
-	jp Q_DefaultVBlankHandler
-	ENDL
-IntTrampolinesEnd:
-
-
 Player_MusicUpdate:
-    xor a
-    ld hl, Q_hCarillonFFDC
-    ld [hli], a
-    ld a, [hli]
-    call Q_Player_MusicUpdateFreqSlide
-    call Q_Player_MusicUpdateCH1
-    call Q_Player_MusicUpdateCH2
-    call Q_Player_MusicUpdateCH3
-    call Q_Player_MusicUpdateCH4
-    ld hl, Q_hIsMusStopped
-    ld a, [hli]
-    or a
-    ret nz
+	xor a
+	ld hl, Q_hCarillonFFDC
+	ld [hli], a
+	ld a, [hli]
+	call Q_Player_MusicUpdateFreqSlide
+	call Q_Player_MusicUpdateCH1
+	call Q_Player_MusicUpdateCH2
+	call Q_Player_MusicUpdateCH3
+	call Q_Player_MusicUpdateCH4
+	ld hl, Q_hIsMusStopped
+	ld a, [hli]
+	or a
+	ret nz
 
-    ld a, [hli]
-    dec [hl]
-    jr z, jr_000_4422
+	ld a, [hli]
+	dec [hl]
+	jr z, jr_000_4422
 
-    sra a
-    cp [hl]
-    ret nz
+	sra a
+	cp [hl]
+	ret nz
 
-    jr jr_000_4423
+	jr jr_000_4423
 
 jr_000_4422:
-    ld [hl], a
+	ld [hl], a
 
 jr_000_4423:
-    inc l
-    xor a
-    or [hl]
-    jr nz, jr_000_4444
+	inc l
+	xor a
+	or [hl]
+	jr nz, jr_000_4444
 
-    inc l
-    inc l
-    inc [hl]
-    ld e, [hl]
-    ld d, HIGH(wPatternTable)
-    assert LOW(wPatternTable) == 0
+	inc l
+	inc l
+	inc [hl]
+	ld e, [hl]
+	ld d, HIGH(wPatternTable)
+	assert LOW(wPatternTable) == 0
 
 jr_000_442e:
-    ld a, [de]
-    or a
-    jr nz, jr_000_4442
+	ld a, [de]
+	or a
+	jr nz, jr_000_4442
 
-    inc e
-    ld a, [de]
-    cpl
-    or a
-    jr nz, jr_000_443d
+	inc e
+	ld a, [de]
+	cpl
+	or a
+	jr nz, jr_000_443d
 
-    inc a
-    ld [Q_hIsMusStopped], a
-    ret
+	inc a
+	ld [Q_hIsMusStopped], a
+	ret
 
 
 jr_000_443d:
-    cpl
-    ld [hl], a
-    ld e, a
-    jr jr_000_442e
+	cpl
+	ld [hl], a
+	ld e, a
+	jr jr_000_442e
 
 jr_000_4442:
-    dec l
-    ld [hld], a
+	dec l
+	ld [hld], a
 
 jr_000_4444:
-    ld d, $FF ; HIGH(<Carillon data>)
-    ld a, [hli]
-    ld h, [hl]
-    ld l, a
-    ld a, [hli]
-    or a
-    jr z, jr_000_4465
+	ld d, $FF ; HIGH(<Carillon data>)
+	ld a, [hli]
+	ld h, [hl]
+	ld l, a
+	ld a, [hli]
+	or a
+	jr z, jr_000_4465
 
-    ld e, $c9
-    bit 0, a
-    jr z, jr_000_4458
+	ld e, $c9
+	bit 0, a
+	jr z, jr_000_4458
 
-    and $fe
-    ld [de], a
-    jr jr_000_4465
+	and $fe
+	ld [de], a
+	jr jr_000_4465
 
 jr_000_4458:
-    ld [de], a
-    ld a, [hl]
-    dec e
-    ld [de], a
-    dec e
-    ld a, $01
-    ld [de], a
-    dec e
-    ld a, [de]
-    and $fe
-    ld [de], a
+	ld [de], a
+	ld a, [hl]
+	dec e
+	ld [de], a
+	dec e
+	ld a, $01
+	ld [de], a
+	dec e
+	ld a, [de]
+	and $fe
+	ld [de], a
 
 jr_000_4465:
-    inc l
-    ld a, [hli]
-    or a
-    jr z, jr_000_4482
+	inc l
+	ld a, [hli]
+	or a
+	jr z, jr_000_4482
 
-    ld e, $cf
-    bit 0, a
-    jr z, jr_000_4475
+	ld e, $cf
+	bit 0, a
+	jr z, jr_000_4475
 
-    and $fe
-    ld [de], a
-    jr jr_000_4482
+	and $fe
+	ld [de], a
+	jr jr_000_4482
 
 jr_000_4475:
-    ld [de], a
-    ld a, [hl]
-    dec e
-    ld [de], a
-    dec e
-    ld a, $01
-    ld [de], a
-    dec e
-    ld a, [de]
-    and $fe
-    ld [de], a
+	ld [de], a
+	ld a, [hl]
+	dec e
+	ld [de], a
+	dec e
+	ld a, $01
+	ld [de], a
+	dec e
+	ld a, [de]
+	and $fe
+	ld [de], a
 
 jr_000_4482:
-    inc l
-    ld a, [hli]
-    or a
-    jr z, jr_000_44aa
+	inc l
+	ld a, [hli]
+	or a
+	jr z, jr_000_44aa
 
-    cp $ff
-    jr z, jr_000_44d9
+	cp $ff
+	jr z, jr_000_44d9
 
-    ld e, $d6
-    bit 0, a
-    jr z, jr_000_4496
+	ld e, $d6
+	bit 0, a
+	jr z, jr_000_4496
 
-    and $fe
-    ld [de], a
-    jr jr_000_44aa
+	and $fe
+	ld [de], a
+	jr jr_000_44aa
 
 jr_000_4496:
-    ld [de], a
-    ld a, [hl]
-    dec e
-    ld [de], a
-    dec e
-    ld a, $fe
-    ld [de], a
-    dec e
-    cpl
-    ld [de], a
-    xor a
-    ld [Q_hMusSamCount], a
-    dec e
-    ld a, [de]
-    and $fa
-    ld [de], a
+	ld [de], a
+	ld a, [hl]
+	dec e
+	ld [de], a
+	dec e
+	ld a, $fe
+	ld [de], a
+	dec e
+	cpl
+	ld [de], a
+	xor a
+	ld [Q_hMusSamCount], a
+	dec e
+	ld a, [de]
+	and $fa
+	ld [de], a
 
 jr_000_44aa:
-    inc l
-    ld a, [hli]
-    or a
-    jr z, jr_000_44bd
+	inc l
+	ld a, [hli]
+	or a
+	jr z, jr_000_44bd
 
-    and $fe
-    ld e, $db
-    ld [de], a
-    dec e
-    ld a, $01
-    ld [de], a
-    dec e
-    ld a, [de]
-    and $fe
-    ld [de], a
+	and $fe
+	ld e, $db
+	ld [de], a
+	dec e
+	ld a, $01
+	ld [de], a
+	dec e
+	ld a, [de]
+	and $fe
+	ld [de], a
 
 jr_000_44bd:
-    ld a, [hli]
-    ld b, a
-    ld e, $c3
-    ld a, l
-    ld [de], a
-    ld a, b
-    or a
-    jr z, jr_000_44d5
+	ld a, [hli]
+	ld b, a
+	ld e, $c3
+	ld a, l
+	ld [de], a
+	ld a, b
+	or a
+	jr z, jr_000_44d5
 
-    swap a
-    and $0f
-    add a
-    add $e0
-    ld h, $46
-    ld l, a
-    ld a, [hli]
-    ld h, [hl]
-    ld l, a
-    jp hl
+	swap a
+	and $0f
+	add a
+	add $e0
+	ld h, $46
+	ld l, a
+	ld a, [hli]
+	ld h, [hl]
+	ld l, a
+	jp hl
 
 
 jr_000_44d5:
-    ld [Q_hMusModulate], a
-    ret
+	ld [Q_hMusModulate], a
+	ret
 
 
 jr_000_44d9:
-    ld e, $e7
-    ld a, $05
-    ld [de], a
-    ld a, [hl]
-    add $f0
-    ld c, a
-    ld b, $47
-    ld a, [bc]
-    add a
-    add a
-    inc e
-    ld [de], a
-    ld a, [hl]
-    add a
-    add $c0
-    ld b, $46
-    ld c, a
-    inc e
-    xor a
-    ld [de], a
-    inc e
-    ld a, [bc]
-    ld [de], a
-    inc c
-    inc e
-    ld a, [bc]
-    ld [de], a
-    jr jr_000_44aa
+	ld e, $e7
+	ld a, $05
+	ld [de], a
+	ld a, [hl]
+	add $f0
+	ld c, a
+	ld b, $47
+	ld a, [bc]
+	add a
+	add a
+	inc e
+	ld [de], a
+	ld a, [hl]
+	add a
+	add $c0
+	ld b, $46
+	ld c, a
+	inc e
+	xor a
+	ld [de], a
+	inc e
+	ld a, [bc]
+	ld [de], a
+	inc c
+	inc e
+	ld a, [bc]
+	ld [de], a
+	jr jr_000_44aa
 
 CompressedMusicData:
 INCBIN "res/mus_data.bin.rnc"
@@ -1114,9 +1214,7 @@ wTextOAM:
 SECTION "Shadow OAM", WRAM0[$C0FC]
 ; The byte at $C0FC may be overwritten with $00 by the text updating code, so reserve some space
 	db
-ICON_ENBuf:
-	dw
-	ds 1 ; Unused
+	ds 3 ; Unused
 
 EXPECTED = 40 - NB_LIGHT_SPRITES - NB_CONSOLE_SPRITES
 static_assert NB_TEXT_SPRITES_2 == EXPECTED, "{NB_TEXT_SPRITES_2} != {EXPECTED}"

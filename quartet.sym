@@ -88,6 +88,8 @@
 00:25d4 Unpause.done
 00:25d7 CompressedStatusTiles
 00:2716 PerformVRAMTransfer
+00:2749 MASK_ENBlackPacket
+00:2759 MASK_ENCancelPacket
 00:2769 OBJ_TRNPatchPart1
 00:2779 OBJ_TRNPatchPart2
 00:2789 OBJ_TRNPatchPart3
@@ -97,10 +99,11 @@
 00:27c9 OBJ_TRNPatchPart7
 00:27d9 OBJ_TRNPatchPart8
 00:27e9 CHR_TRNPacket
-00:27f9 UnkPacket
+00:27f9 CHR_TRN2ndHalfPacket
 00:2809 PCT_TRNPacket
 00:2819 OnePlayerPacket
 00:2829 TwoPlayerPacket
+00:2839 OBJ_TRNPacket
 00:2842 Font
 00:295b CopyrightScreens
 00:2968 CopyrightScreens.sgb

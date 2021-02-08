@@ -10,10 +10,11 @@ COVER_BASE_ID equ @ / 32
 INCLUDE "res/screen_cover.2bpp.size"
 ; Include screen-covering (2bpp) tiles, expanding them to 4bpp
 ; Skip the first tile (assuming it's the transparent one), as $00 is already that.
-I = 8 * 2
-	REPT SIZE / 2 - 8
-		INCBIN "res/screen_cover.2bpp", I, 2
-I = I + 2
+I = 16
+	REPT SIZE / 16 - 1
+		INCBIN "res/screen_cover.2bpp", I, 16
+		ds 16, 0
+I = I + 16
 	ENDR
 
 	; Pad up to 128 4bpp tiles
@@ -62,10 +63,10 @@ I = 0
 WHICH = 0
 cover_entry: macro
 BYTE equs STRCAT("$", STRSUB("{COVER_MAP{d:WHICH}}", I + 1, 4))
-	IF LOW(BYTE) == 0 ; If transparent tile, keep that
+	IF HIGH(BYTE) == 0 ; If transparent tile, keep that
 		dw 0
 	ELSE ; Otherwise, apply offset, but preserve attr
-		dw 0 ; db LOW(BYTE) + COVER_BASE_ID, HIGH(BYTE)
+		db HIGH(BYTE) + COVER_BASE_ID - 1, LOW(BYTE) + $10
 	ENDC
 	PURGE BYTE
 

@@ -49,7 +49,7 @@ ENDM
 
 SECTION "Text", ROM0[0]
 
-	frame "AYCE", "PRESENTS", "..."
+	frame "*AYCE*", "PRESENTS", "..."
 	frame "", "QUARTET", ""
 	frame "CODE", "", "ISSOTM"
 	frame "GFX", "", "DOCTOR"
