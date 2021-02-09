@@ -4,7 +4,10 @@ INCLUDE "hardware.inc/hardware.inc"
 
 SECTION "Data", ROM0[0]
 
-LOAD "Decompressed data", WRAM0[$C22C]
+WINX_BASE equ $C25C
+	PRINTT "WINX_BASE equ {WINX_BASE}\n"
+
+LOAD "Decompressed data", WRAM0[WINX_BASE]
 
 WXVAL_LEN = 0 ; Length of dest buffer
 CUR_FRAME = 0

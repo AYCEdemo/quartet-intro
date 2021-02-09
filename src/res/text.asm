@@ -54,6 +54,8 @@ SECTION "Text", ROM0[0]
 	frame "CODE", "", "ISSOTM"
 	frame "GFX", "", "DOCTOR"
 	frame "MUSIC", "", "DEVED"
+	frame "GREETS TO", "PHANTASY", ""
+	frame "GREETS TO", "SNORPUNG", "CNCD"
 	frame "PRESS ANY", "BTN FOR", "THE GAME"
-	frame "SCROLLER", "LOOPS NOW", "..."
+	frame "SCROLLER", "LOOPING", "..."
 	db 0 ; Terminator

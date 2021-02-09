@@ -1232,6 +1232,7 @@ wText:
 INCLUDE "res/text.bin.size"
 	ds SIZE
 
+	static_assert @ == WINX_BASE, "{@} != {WINX_BASE}"
 wWindowXValuesRLE:
 INCLUDE "res/winx.bin.size"
 	ds SIZE - NB_STREAMED_TILES * 16
