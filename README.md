@@ -10,6 +10,8 @@ Careful when cloning that this repo uses `hardware.inc`, `superfamiconv` and `rn
 You need `quartet.gb` at the root of the repo (not provided) and RGBDS installed.
 Be careful that \~3 different revisions of *Quartet* were released; SHA256 of the ROM we used: `dcf0199e5fbc40cdf06131c376f821f275c3d518608de04ce1cfbe4d47c472aa`.
 
+[RGBDS v0.4.2](https://github.com/gbdev/rgbds/releases/v0.4.2) must be used.
+
 Then run `make`.
 
 ## Notes
